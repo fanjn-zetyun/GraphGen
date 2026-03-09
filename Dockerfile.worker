@@ -1,0 +1,26 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git build-essential && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# 复制GraphGen源码
+COPY graphgen/ ./graphgen/
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制YAML构建脚本和entrypoint
+COPY yaml_builder.py /app/yaml_builder.py
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# 创建数据目录
+RUN mkdir -p /workspace/user-data/dataset
+
+# 入口点
+ENTRYPOINT ["/app/entrypoint.sh"]
