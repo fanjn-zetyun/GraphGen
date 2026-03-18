@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 
 # 固定的输出目录
-OUTPUT_DIR = "/workspace/user-data/dataset"
+OUTPUT_DIR = "/workspace/user-data/datasets"
 LOG_DIR = "/app/container_logs"
 
 # 配置日志
