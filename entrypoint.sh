@@ -2,7 +2,7 @@
 set -e
 
 # 日志配置
-LOG_DIR="/app/container_logs"
+LOG_DIR="/workspace/tmp/graphgen_container"
 TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
 LOG_FILE="${LOG_DIR}/entrypoint_${TIMESTAMP}.log"
 
@@ -60,6 +60,7 @@ if params.get('if_trainee_model'):
 
 log "INFO" "设置 LLM 环境变量..."
 setup_llm_env
+log "INFO" "TOKENIZER_MODEL=$TOKENIZER_MODEL"
 log "INFO" "SYNTHESIZER_MODEL=$SYNTHESIZER_MODEL"
 log "INFO" "SYNTHESIZER_BASE_URL=$SYNTHESIZER_BASE_URL"
 

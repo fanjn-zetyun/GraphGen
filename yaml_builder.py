@@ -16,12 +16,15 @@ LOG_DIR = "/app/container_logs"
 
 # 配置日志
 def setup_logging():
-    """配置日志记录器"""
+    """配置日志记录器，使用 entrypoint.sh 设置的日志文件"""
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    # 生成带时间戳的日志文件名
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_file = os.path.join(LOG_DIR, f"yaml_builder_{timestamp}.log")
+    # 优先使用 entrypoint.sh 设置的日志文件路径
+    log_file = os.environ.get("ENTRYPOINT_LOG_FILE")
+    if not log_file:
+        # 如果没有设置，则创建独立的日志文件（兼容独立运行场景）
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_file = os.path.join(LOG_DIR, f"yaml_builder_{timestamp}.log")
 
     logging.basicConfig(
         level=logging.INFO,

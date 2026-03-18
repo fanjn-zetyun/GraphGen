@@ -16,12 +16,14 @@ load_dotenv()
 sys_path = os.path.abspath(os.path.dirname(__file__))
 
 # Token usage logging file (set by entrypoint.sh)
-ENTRYPOINT_LOG_FILE = os.environ.get("ENTRYPOINT_LOG_FILE", None)
+# Note: Read at function call time, not module load time, to ensure Ray actors can access it
 
 
 def log_token_usage(engine):
     """Log token usage statistics to the entrypoint log file."""
-    if not ENTRYPOINT_LOG_FILE:
+    # Read environment variable at function call time
+    entrypoint_log_file = os.environ.get("ENTRYPOINT_LOG_FILE")
+    if not entrypoint_log_file:
         logger.info("ENTRYPOINT_LOG_FILE not set, skipping token usage logging")
         return
 
@@ -39,7 +41,7 @@ def log_token_usage(engine):
 
     # Write to entrypoint log file
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    with open(ENTRYPOINT_LOG_FILE, "a", encoding="utf-8") as f:
+    with open(entrypoint_log_file, "a", encoding="utf-8") as f:
         f.write(f"\n[{timestamp}] [INFO] ==========================================\n")
         f.write(f"[{timestamp}] [INFO] Token Usage Statistics\n")
         f.write(f"[{timestamp}] [INFO] ==========================================\n")
@@ -51,7 +53,7 @@ def log_token_usage(engine):
             f.write(f"[{timestamp}] [INFO]   Total Tokens: {stats['total_tokens']}\n")
         f.write(f"[{timestamp}] [INFO] ==========================================\n")
 
-    logger.info("Token usage statistics written to %s", ENTRYPOINT_LOG_FILE)
+    logger.info("Token usage statistics written to %s", entrypoint_log_file)
 
 
 def set_working_dir(folder):
