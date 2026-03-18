@@ -5,6 +5,7 @@ numpy
 networkx
 graspologic
 tiktoken
+transformers
 pyecharts
 wikipedia
 tenacity

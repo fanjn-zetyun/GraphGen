@@ -1,49 +1,41 @@
-# Use a slim version of Python 3.10 as the base image
-FROM python:3.10-slim
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.12-slim
 
-# Set environment variables to prevent Python from writing .pyc files 
-# and to ensure output is logged directly
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies required for building Python packages
-RUN apt-get update && \
+# 设置环境变量
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# 配置镜像源、时区并安装依赖（合并为单层以减少镜像大小）
+RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g; s|http://security.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|http://.*.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true && \
+    ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-    git \
-    build-essential \
-    && apt-get clean && \
+    curl wget net-tools git cmake \
+    poppler-utils tesseract-ocr tesseract-ocr-chi-sim \
+    libopenblas-dev ninja-build build-essential \
+    pkg-config rclone tmux moreutils file \
+    openssh-server vim telnet iputils-ping unzip bzip2 \
+    librdmacm1 libibverbs1 ibverbs-providers libgl1 && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user and switch to that user
-RUN useradd -m appuser
+# 复制依赖文件并安装（利用 Docker 缓存）
+# COPY requirements.txt .
 
-# Copy requirements file and install Python dependencies
-COPY requirements.txt . 
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code into the container
+# 复制 GraphGen 源码
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p cache/data/graphgen cache/logs
+RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ && \
+    rm -rf /root/.cache/pip
+# 复制构建脚本和入口点
+# COPY yaml_builder.py /app/yaml_builder.py
+# COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# Environment variables for application config
-ENV SYNTHESIZER_MODEL="" 
-ENV SYNTHESIZER_BASE_URL="" 
-ENV SYNTHESIZER_API_KEY="" 
-ENV TRAINEE_MODEL="" 
-ENV TRAINEE_BASE_URL="" 
-ENV TRAINEE_API_KEY="" 
-
-# Expose the port the app will run on
-EXPOSE 7860
-
-# Switch to the non-root user
-USER appuser
-
-# Command to run the application
-CMD ["python", "webui/app.py"]
+# 入口点
+ENTRYPOINT ["/app/entrypoint.sh"]

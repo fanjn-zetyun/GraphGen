@@ -68,6 +68,24 @@ class LLMServiceActor:
         """A simple method to check if the actor is ready."""
         return True
 
+    def get_token_usage(self) -> Dict[str, Any]:
+        """Get the token usage statistics from the LLM instance."""
+        if hasattr(self.llm_instance, "token_usage"):
+            return {
+                "usage_records": self.llm_instance.token_usage,
+                "total_prompt_tokens": sum(
+                    u.get("prompt_tokens", 0) for u in self.llm_instance.token_usage
+                ),
+                "total_completion_tokens": sum(
+                    u.get("completion_tokens", 0) for u in self.llm_instance.token_usage
+                ),
+                "total_tokens": sum(
+                    u.get("total_tokens", 0) for u in self.llm_instance.token_usage
+                ),
+                "request_count": len(self.llm_instance.token_usage),
+            }
+        return {"usage_records": [], "total_prompt_tokens": 0, "total_completion_tokens": 0, "total_tokens": 0, "request_count": 0}
+
 
 class LLMServiceProxy(BaseLLMWrapper):
     """
