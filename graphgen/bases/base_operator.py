@@ -32,6 +32,7 @@ class BaseOperator(ABC):
         op_name: str = None,
     ):
         # lazy import to avoid circular import
+        from graphgen.common.runtime import use_local_runtime
         from graphgen.common.init_storage import init_storage
         from graphgen.utils import set_logger
 
@@ -43,18 +44,21 @@ class BaseOperator(ABC):
             backend=kv_backend, working_dir=working_dir, namespace=self.op_name
         )
 
-        try:
-            import ray
-
-            ctx = ray.get_runtime_context()
-            worker_id = ctx.get_actor_id() or ctx.get_worker_id()
-            worker_id_short = worker_id[-6:] if worker_id else "driver"
-        except Exception as e:
-            print(
-                "Warning: Could not get Ray worker ID, defaulting to 'local'. Exception:",
-                e,
-            )
+        if use_local_runtime():
             worker_id_short = "local"
+        else:
+            try:
+                import ray
+
+                ctx = ray.get_runtime_context()
+                worker_id = ctx.get_actor_id() or ctx.get_worker_id()
+                worker_id_short = worker_id[-6:] if worker_id else "driver"
+            except Exception as e:
+                print(
+                    "Warning: Could not get Ray worker ID, defaulting to 'local'. Exception:",
+                    e,
+                )
+                worker_id_short = "local"
 
         # e.g. cache/logs/ChunkService_a1b2c3.log
         log_file = os.path.join(log_dir, f"{self.op_name}_{worker_id_short}.log")

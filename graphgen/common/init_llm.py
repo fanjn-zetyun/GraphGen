@@ -1,11 +1,53 @@
+import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from graphgen.bases import BaseLLMWrapper
+from graphgen.common.runtime import use_local_runtime
 from graphgen.models import Tokenizer
 
 if TYPE_CHECKING:
     import ray
+
+logger = logging.getLogger(__name__)
+
+# 特殊标记，表示内容被审核拦截
+CONTENT_MODERATION_BLOCKED = "[CONTENT_MODERATION_BLOCKED]"
+
+_LOCAL_LLM_CACHE: dict[str, BaseLLMWrapper] = {}
+
+
+def _build_llm_instance(backend: str, config: Dict[str, Any]):
+    tokenizer_model = os.environ.get("TOKENIZER_MODEL", "cl100k_base")
+    tokenizer = Tokenizer(model_name=tokenizer_model)
+    config = dict(config)
+    config["tokenizer"] = tokenizer
+
+    if backend == "http_api":
+        from graphgen.models.llm.api.http_client import HTTPClient
+
+        return HTTPClient(**config)
+    if backend in ("openai_api", "azure_openai_api"):
+        from graphgen.models.llm.api.openai_client import OpenAIClient
+
+        return OpenAIClient(**config, backend=backend)
+    if backend == "ollama_api":
+        from graphgen.models.llm.api.ollama_client import OllamaClient
+
+        return OllamaClient(**config)
+    if backend == "huggingface":
+        from graphgen.models.llm.local.hf_wrapper import HuggingFaceWrapper
+
+        return HuggingFaceWrapper(**config)
+    if backend == "sglang":
+        from graphgen.models.llm.local.sglang_wrapper import SGLangWrapper
+
+        return SGLangWrapper(**config)
+    if backend == "vllm":
+        from graphgen.models.llm.local.vllm_wrapper import VLLMWrapper
+
+        return VLLMWrapper(**config)
+    raise NotImplementedError(f"Backend {backend} is not implemented yet.")
 
 
 class LLMServiceActor:
@@ -15,44 +57,17 @@ class LLMServiceActor:
 
     def __init__(self, backend: str, config: Dict[str, Any]):
         self.backend = backend
-        tokenizer_model = os.environ.get("TOKENIZER_MODEL", "cl100k_base")
-        tokenizer = Tokenizer(model_name=tokenizer_model)
-        config["tokenizer"] = tokenizer
-
-        if backend == "http_api":
-            from graphgen.models.llm.api.http_client import HTTPClient
-
-            self.llm_instance = HTTPClient(**config)
-        elif backend in ("openai_api", "azure_openai_api"):
-            from graphgen.models.llm.api.openai_client import OpenAIClient
-
-            # pass in concrete backend to the OpenAIClient so that internally we can distinguish
-            # between OpenAI and Azure OpenAI
-            self.llm_instance = OpenAIClient(**config, backend=backend)
-        elif backend == "ollama_api":
-            from graphgen.models.llm.api.ollama_client import OllamaClient
-
-            self.llm_instance = OllamaClient(**config)
-        elif backend == "huggingface":
-            from graphgen.models.llm.local.hf_wrapper import HuggingFaceWrapper
-
-            self.llm_instance = HuggingFaceWrapper(**config)
-        elif backend == "sglang":
-            from graphgen.models.llm.local.sglang_wrapper import SGLangWrapper
-
-            self.llm_instance = SGLangWrapper(**config)
-
-        elif backend == "vllm":
-            from graphgen.models.llm.local.vllm_wrapper import VLLMWrapper
-
-            self.llm_instance = VLLMWrapper(**config)
-        else:
-            raise NotImplementedError(f"Backend {backend} is not implemented yet.")
+        self.llm_instance = _build_llm_instance(backend, config)
 
     async def generate_answer(
         self, text: str, history: Optional[list[str]] = None, **extra: Any
     ) -> str:
-        return await self.llm_instance.generate_answer(text, history, **extra)
+        from graphgen.models.llm.api.openai_client import ContentModerationError
+        try:
+            return await self.llm_instance.generate_answer(text, history, **extra)
+        except ContentModerationError as e:
+            logger.warning("Content moderation blocked request: %s", str(e))
+            return CONTENT_MODERATION_BLOCKED
 
     async def generate_topk_per_token(
         self, text: str, history: Optional[list[str]] = None, **extra: Any
@@ -193,5 +208,10 @@ def init_llm(model_type: str) -> Optional[BaseLLMWrapper]:
     if not config:
         return None
     backend = config.pop("backend")
+    if use_local_runtime():
+        cache_key = f"{model_type}:{backend}:{tuple(sorted(config.items()))}"
+        if cache_key not in _LOCAL_LLM_CACHE:
+            _LOCAL_LLM_CACHE[cache_key] = _build_llm_instance(backend, config)
+        return _LOCAL_LLM_CACHE[cache_key]
     llm_wrapper = LLMFactory.create_llm(model_type, backend, config)
     return llm_wrapper

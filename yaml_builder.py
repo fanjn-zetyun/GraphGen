@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 
 # 固定的输出目录
-OUTPUT_DIR = "/workspace/user-data/datasets"
+# OUTPUT_DIR = "/workspace/user-data/datasets"
 LOG_DIR = "/app/container_logs"
 
 # 配置日志
@@ -104,18 +104,29 @@ def build_config(params):
     """构建GraphGen YAML配置（复用webui/app.py逻辑）"""
     logger.info("开始构建GraphGen配置...")
 
+    # 兼容新旧两套参数命名
+    # model_name / synthesizer_model
+    # base_url / synthesizer_url
+    # file_path_input / upload_file
+    # export_path / final_output_path
+    model_name = params.get('model_name') or params.get('synthesizer_model', '')
+    base_url = params.get('base_url') or params.get('synthesizer_url', '')
+    api_key = params.get('api_key', '')
+    file_path_input = params.get('file_path_input') or params.get('upload_file', '')
+    export_path = params.get('export_path') or params.get('final_output_path', '')
+
     # 设置环境变量（LLM配置）
     logger.info("设置LLM环境变量...")
     os.environ["SYNTHESIZER_BACKEND"] = "openai_api"
-    os.environ["SYNTHESIZER_MODEL"] = params["synthesizer_model"]
-    os.environ["SYNTHESIZER_BASE_URL"] = params["synthesizer_url"]
-    os.environ["SYNTHESIZER_API_KEY"] = params["api_key"]
+    os.environ["SYNTHESIZER_MODEL"] = model_name
+    os.environ["SYNTHESIZER_BASE_URL"] = base_url
+    os.environ["SYNTHESIZER_API_KEY"] = api_key
     os.environ["TOKENIZER_MODEL"] = params.get("tokenizer", "cl100k_base")
     os.environ["RPM"] = str(params.get("rpm", 1000))
     os.environ["TPM"] = str(params.get("tpm", 50000))
 
-    logger.info(f"Synthesizer模型: {params['synthesizer_model']}")
-    logger.info(f"Synthesizer URL: {params['synthesizer_url']}")
+    logger.info(f"Synthesizer模型: {model_name}")
+    logger.info(f"Synthesizer URL: {base_url}")
 
     if params.get("if_trainee_model"):
         logger.info("配置Trainee模型...")
@@ -133,7 +144,7 @@ def build_config(params):
             "op_name": "read",
             "type": "source",
             "dependencies": [],
-            "params": {"input_path": [params["upload_file"]]},
+            "params": {"input_path": [file_path_input]},
         },
         {
             "id": "chunk",
@@ -212,11 +223,14 @@ def build_config(params):
 
     # 完整配置
     logger.info("组装完整配置...")
+    # 使用固定的临时工作目录，最终输出路径由 final_output_path 指定
+    working_dir = "/tmp/graphgen_workspace"
     config = {
         "global_params": {
-            "working_dir": OUTPUT_DIR,
-            "graph_backend": "kuzu",
-            "kv_backend": "rocksdb",
+            "working_dir": working_dir,
+            "graph_backend": params.get("graph_backend", "networkx"),
+            "kv_backend": params.get("kv_backend", "json_kv"),  # 默认使用 json_kv 避免 rocksdb 崩溃
+            "final_output_path": export_path,  # 用户指定的最终输出路径
         },
         "nodes": nodes,
     }

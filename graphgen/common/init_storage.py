@@ -3,6 +3,9 @@ from typing import Any, Dict, List, Set, Union
 import ray
 
 from graphgen.bases.base_storage import BaseGraphStorage, BaseKVStorage
+from graphgen.common.runtime import use_local_runtime
+
+_LOCAL_STORAGE_CACHE: dict[tuple[str, str, str], Union[BaseKVStorage, BaseGraphStorage]] = {}
 
 
 class KVStorageActor:
@@ -320,4 +323,27 @@ class StorageFactory:
 
 
 def init_storage(backend: str, working_dir: str, namespace: str):
+    if use_local_runtime():
+        cache_key = (backend, working_dir, namespace)
+        if cache_key not in _LOCAL_STORAGE_CACHE:
+            if backend == "json_kv":
+                from graphgen.storage.kv.json_storage import JsonKVStorage
+
+                storage = JsonKVStorage(working_dir=working_dir, namespace=namespace)
+            elif backend == "rocksdb":
+                from graphgen.storage.kv.rocksdb_storage import RocksDBKVStorage
+
+                storage = RocksDBKVStorage(working_dir=working_dir, namespace=namespace)
+            elif backend == "networkx":
+                from graphgen.storage.graph.networkx_storage import NetworkXStorage
+
+                storage = NetworkXStorage(working_dir=working_dir, namespace=namespace)
+            elif backend == "kuzu":
+                from graphgen.storage.graph.kuzu_storage import KuzuStorage
+
+                storage = KuzuStorage(working_dir=working_dir, namespace=namespace)
+            else:
+                raise ValueError(f"Unknown storage backend: {backend}")
+            _LOCAL_STORAGE_CACHE[cache_key] = storage
+        return _LOCAL_STORAGE_CACHE[cache_key]
     return StorageFactory.create_storage(backend, working_dir, namespace)
