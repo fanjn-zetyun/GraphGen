@@ -1,7 +1,7 @@
 from typing import Tuple
 
 from graphgen.bases import BaseGraphStorage, BaseLLMWrapper, BaseOperator
-from graphgen.common.init_llm import init_llm
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED, init_llm
 from graphgen.common.init_storage import init_storage
 from graphgen.models import QuizGenerator
 from graphgen.utils import logger, run_concurrent
@@ -40,8 +40,13 @@ class QuizService(BaseOperator):
                 new_description = await self.llm_client.generate_answer(
                     prompt, temperature=1
                 )
+                if new_description == CONTENT_MODERATION_BLOCKED:
+                    logger.warning("Content moderation blocked quiz generation")
+                    continue
                 rephrased_text = self.generator.parse_rephrased_text(new_description)
                 quizzes.append((rephrased_text, gt))
+            if not quizzes:
+                return None
             return {
                 "index": index,
                 "description": desc,

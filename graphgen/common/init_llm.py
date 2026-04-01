@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -6,6 +7,11 @@ from graphgen.models import Tokenizer
 
 if TYPE_CHECKING:
     import ray
+
+logger = logging.getLogger(__name__)
+
+# 特殊标记，表示内容被审核拦截
+CONTENT_MODERATION_BLOCKED = "[CONTENT_MODERATION_BLOCKED]"
 
 
 class LLMServiceActor:
@@ -52,7 +58,12 @@ class LLMServiceActor:
     async def generate_answer(
         self, text: str, history: Optional[list[str]] = None, **extra: Any
     ) -> str:
-        return await self.llm_instance.generate_answer(text, history, **extra)
+        from graphgen.models.llm.api.openai_client import ContentModerationError
+        try:
+            return await self.llm_instance.generate_answer(text, history, **extra)
+        except ContentModerationError as e:
+            logger.warning("Content moderation blocked request: %s", str(e))
+            return CONTENT_MODERATION_BLOCKED
 
     async def generate_topk_per_token(
         self, text: str, history: Optional[list[str]] = None, **extra: Any

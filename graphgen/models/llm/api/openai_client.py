@@ -1,8 +1,9 @@
+import logging
 import math
 from typing import Any, Dict, List, Optional
 
 import openai
-from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, AsyncAzureOpenAI, RateLimitError
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, AsyncAzureOpenAI, BadRequestError, RateLimitError
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -13,6 +14,13 @@ from tenacity import (
 from graphgen.bases.base_llm_wrapper import BaseLLMWrapper
 from graphgen.bases.datatypes import Token
 from graphgen.models.llm.limitter import RPM, TPM
+
+logger = logging.getLogger(__name__)
+
+
+class ContentModerationError(Exception):
+    """内容审核未通过异常"""
+    pass
 
 
 def get_top_response_tokens(response: openai.ChatCompletion) -> List[Token]:
@@ -162,10 +170,26 @@ class OpenAIClient(BaseLLMWrapper):
             await self.rpm.wait(silent=True)
             await self.tpm.wait(estimated_tokens, silent=True)
 
-        completion = await self.client.chat.completions.create(  # pylint: disable=E1125
-            model=self.model, **kwargs
-        )
-        if hasattr(completion, "usage"):
+        try:
+            completion = await self.client.chat.completions.create(  # pylint: disable=E1125
+                model=self.model, **kwargs
+            )
+            # 打印API返回的完整响应，方便调试
+            logger.info(f"[API Response] model={self.model}, choices_count={len(completion.choices) if completion.choices else 0}")
+            if completion.choices and len(completion.choices) > 0:
+                raw_content = completion.choices[0].message.content
+                logger.info(f"[API Response Content] {raw_content[:500] if raw_content else 'None'}{'...' if raw_content and len(raw_content) > 500 else ''}")
+        except BadRequestError as e:
+            # 检查是否是内容审核错误
+            error_msg = str(e)
+            logger.error(f"[API BadRequestError] {error_msg}")
+            if "inappropriate" in error_msg.lower() or "review" in error_msg.lower() or "content" in error_msg.lower():
+                logger.warning(f"Content moderation blocked request: {error_msg}")
+                raise ContentModerationError(f"Content moderation failed: {error_msg}") from e
+            # 其他 BadRequestError 重新抛出
+            raise
+
+        if hasattr(completion, "usage") and completion.usage is not None:
             self.token_usage.append(
                 {
                     "prompt_tokens": completion.usage.prompt_tokens,
@@ -173,7 +197,21 @@ class OpenAIClient(BaseLLMWrapper):
                     "total_tokens": completion.usage.total_tokens,
                 }
             )
-        return self.filter_think_tags(completion.choices[0].message.content)
+            logger.info(f"[API Token Usage] prompt={completion.usage.prompt_tokens}, completion={completion.usage.completion_tokens}, total={completion.usage.total_tokens}")
+
+        # 检查 choices 是否为空
+        if not completion.choices or len(completion.choices) == 0:
+            logger.warning(f"API returned empty choices for model {self.model}")
+            return ""
+
+        content = completion.choices[0].message.content
+        if content is None:
+            logger.warning(f"API returned None content for model {self.model}")
+            return ""
+
+        filtered_content = self.filter_think_tags(content)
+        logger.info(f"[API Final Content] {filtered_content[:500] if filtered_content else 'None'}{'...' if filtered_content and len(filtered_content) > 500 else ''}")
+        return filtered_content
 
     async def generate_inputs_prob(
         self, text: str, history: Optional[List[str]] = None, **extra: Any

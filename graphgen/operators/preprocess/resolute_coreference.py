@@ -1,9 +1,10 @@
 from typing import List
 
 from graphgen.bases.datatypes import Chunk
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.models import OpenAIClient
 from graphgen.templates import COREFERENCE_RESOLUTION_PROMPT
-from graphgen.utils import detect_main_language
+from graphgen.utils import detect_main_language, logger
 
 
 async def resolute_coreference(
@@ -29,6 +30,10 @@ async def resolute_coreference(
                 reference=results[0].content, input_sentence=chunk.content
             )
         )
-        results.append(Chunk(id=chunk.id, content=result))
+        if result == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked coreference resolution for chunk %s", chunk.id)
+            results.append(chunk)  # Keep original chunk if moderation blocked
+        else:
+            results.append(Chunk(id=chunk.id, content=result))
 
     return results

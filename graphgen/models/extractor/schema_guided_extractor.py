@@ -1,6 +1,7 @@
 import json
 
 from graphgen.bases import BaseExtractor, BaseLLMWrapper, Chunk
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.templates import SCHEMA_GUIDED_EXTRACTION_PROMPT
 from graphgen.utils import detect_main_language, logger
 
@@ -63,6 +64,9 @@ class SchemaGuidedExtractor(BaseExtractor):
 
         prompt = self.build_prompt(text)
         response = await self.llm_client.generate_answer(prompt)
+        if response == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked extraction for chunk %s", chunk.id)
+            return {}
         try:
             extracted_info = json.loads(response)
             # Ensure all required keys are present

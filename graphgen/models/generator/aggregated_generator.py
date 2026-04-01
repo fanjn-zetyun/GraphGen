@@ -2,6 +2,7 @@ import re
 from typing import Any, Optional
 
 from graphgen.bases import BaseGenerator
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.templates import AGGREGATED_GENERATION_PROMPT
 from graphgen.utils import detect_main_language, logger
 
@@ -109,11 +110,17 @@ class AggregatedGenerator(BaseGenerator):
         """
         rephrasing_prompt = self.build_prompt(batch)
         response = await self.llm_client.generate_answer(rephrasing_prompt)
+        if response == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked rephrasing")
+            return []
         context = self.parse_rephrased_text(response)
         if not context:
             return []
         question_generation_prompt = self._build_prompt_for_question_generation(context)
         response = await self.llm_client.generate_answer(question_generation_prompt)
+        if response == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked question generation")
+            return []
         question = self.parse_response(response)["question"]
         if not question:
             return []

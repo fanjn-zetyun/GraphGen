@@ -2,6 +2,7 @@ import re
 from typing import Any
 
 from graphgen.bases import BaseGenerator
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.templates import COT_GENERATION_PROMPT
 from graphgen.utils import detect_main_language, logger
 
@@ -108,12 +109,18 @@ class CoTGenerator(BaseGenerator):
         """
         prompt = self.build_prompt(batch)
         response = await self.llm_client.generate_answer(prompt)
+        if response == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked CoT template design")
+            return []
         response = self.parse_response(response)
         if not response:
             return []
         question, reasoning_path = response["question"], response["reasoning_path"]
         prompt = self.build_prompt_for_cot_generation(batch, question, reasoning_path)
         cot_answer = await self.llm_client.generate_answer(prompt)
+        if cot_answer == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked CoT generation")
+            return []
         logger.debug("CoT Answer: %s", cot_answer)
         return [
             {

@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 from graphgen.bases import BaseGenerator
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.templates import VQA_GENERATION_PROMPT
 from graphgen.utils import detect_main_language, logger
 
@@ -72,6 +73,9 @@ class VQAGenerator(BaseGenerator):
         """
         prompt = self.build_prompt(batch)
         response = await self.llm_client.generate_answer(prompt)
+        if response == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked VQA generation")
+            return []
         qa_pairs = self.parse_response(response)  # generate one or more QA pairs
         nodes, _ = batch
         for node in nodes:

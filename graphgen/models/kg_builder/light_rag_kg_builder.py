@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Tuple
 
 from graphgen.bases import BaseGraphStorage, BaseKGBuilder, BaseLLMWrapper, Chunk
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.templates import KG_EXTRACTION_PROMPT, KG_SUMMARIZATION_PROMPT
 from graphgen.utils import (
     detect_main_language,
@@ -41,6 +42,9 @@ class LightRAGKGBuilder(BaseKGBuilder):
 
         # step 2: initial glean
         final_result = await self.llm_client.generate_answer(hint_prompt)
+        if final_result == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked chunk %s", chunk_id)
+            return {}, {}
         logger.debug("First extraction result: %s", final_result)
 
         # step3: iterative refinement
@@ -49,6 +53,9 @@ class LightRAGKGBuilder(BaseKGBuilder):
             if_loop_result = await self.llm_client.generate_answer(
                 text=KG_EXTRACTION_PROMPT[language]["IF_LOOP"], history=history
             )
+            if if_loop_result == CONTENT_MODERATION_BLOCKED:
+                logger.warning("Content moderation blocked during loop check")
+                break
             if_loop_result = if_loop_result.strip().strip('"').strip("'").lower()
             if if_loop_result != "yes":
                 break
@@ -56,6 +63,9 @@ class LightRAGKGBuilder(BaseKGBuilder):
             glean_result = await self.llm_client.generate_answer(
                 text=KG_EXTRACTION_PROMPT[language]["CONTINUE"], history=history
             )
+            if glean_result == CONTENT_MODERATION_BLOCKED:
+                logger.warning("Content moderation blocked during glean")
+                break
             logger.debug("Loop %s glean: %s", loop_idx + 1, glean_result)
 
             history += pack_history_conversations(
@@ -227,6 +237,9 @@ class LightRAGKGBuilder(BaseKGBuilder):
             **KG_SUMMARIZATION_PROMPT["FORMAT"],
         )
         new_description = await self.llm_client.generate_answer(prompt)
+        if new_description == CONTENT_MODERATION_BLOCKED:
+            logger.warning("Content moderation blocked summary for %s", entity_or_relation_name)
+            return description
         logger.info(
             "Entity or relation %s summary: %s",
             entity_or_relation_name,

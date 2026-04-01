@@ -71,7 +71,7 @@ class Engine:
 
         if not ray.is_initialized():
             context = ray.init(
-                include_dashboard=True,
+                include_dashboard=False,  # 关闭 dashboard，减少容器内启动等待
                 ignore_reinit_error=True,
                 logging_level=logging.ERROR,
                 log_to_driver=True,
@@ -279,6 +279,10 @@ class Engine:
                 logger.info("Saving output of node %s to %s", node.id, node_output_path)
 
                 ds = self.datasets[node.id]
+                # Drop internal metadata fields before writing final output
+                cols_to_drop = [c for c in ds.columns() if c.startswith("_")]
+                if cols_to_drop:
+                    ds = ds.drop_columns(cols_to_drop)
                 ds.write_json(
                     node_output_path,
                     filename_provider=NodeFilenameProvider(node.id),

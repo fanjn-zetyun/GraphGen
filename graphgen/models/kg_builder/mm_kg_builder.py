@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 
 from graphgen.bases import Chunk
+from graphgen.common.init_llm import CONTENT_MODERATION_BLOCKED
 from graphgen.templates import MMKG_EXTRACTION_PROMPT
 from graphgen.utils import (
     detect_main_language,
@@ -44,6 +45,9 @@ class MMKGBuilder(LightRAGKGBuilder):
                 chunk_text=image_caption,
             )
             result = await self.llm_client.generate_answer(prompt_template)
+            if result == CONTENT_MODERATION_BLOCKED:
+                logger.warning("Content moderation blocked image chunk %s", chunk_id)
+                return {}, {}
             logger.debug("Image chunk extraction result: %s", result)
 
             # parse the result
