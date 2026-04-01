@@ -17,6 +17,8 @@ def run_concurrent(
     *,
     desc: str = "processing",
     unit: str = "item",
+    raise_on_error: bool = False,
+    error_context: str = "processing",
 ) -> List[R]:
     async def _run_all():
         # Wrapper to return the index alongside the result
@@ -34,6 +36,7 @@ def run_concurrent(
         ]
 
         results: List[Exception | R] = [None] * len(items)
+        first_error: tuple[int, Exception] | None = None
         pbar = tqdm_async(total=len(items), desc=desc, unit=unit)
 
         # Iterate over completed tasks
@@ -43,12 +46,20 @@ def run_concurrent(
 
             if error:
                 logger.exception(f"Task failed at index {idx}: {error}")
+                if first_error is None:
+                    first_error = (idx, error)
             else:
                 results[idx] = result
 
             pbar.update(1)
 
         pbar.close()
+        if raise_on_error and first_error is not None:
+            error_idx, error = first_error
+            raise RuntimeError(
+                f"{error_context} failed at index {error_idx}: "
+                f"{type(error).__name__}: {error}"
+            ) from error
         return results
 
     loop = create_event_loop()

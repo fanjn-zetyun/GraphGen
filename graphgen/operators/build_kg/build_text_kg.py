@@ -1,4 +1,5 @@
 from collections import defaultdict
+import os
 from typing import List
 
 from graphgen.bases import BaseLLMWrapper
@@ -24,12 +25,27 @@ def build_text_kg(
 
     kg_builder = LightRAGKGBuilder(llm_client=llm_client, max_loop=max_loop)
 
-    results = run_concurrent(
-        kg_builder.extract,
-        chunks,
-        desc="[2/4]Extracting entities and relationships from chunks",
-        unit="chunk",
-    )
+    try:
+        results = run_concurrent(
+            kg_builder.extract,
+            chunks,
+            desc="[2/4]Extracting entities and relationships from chunks",
+            unit="chunk",
+            raise_on_error=True,
+            error_context="KG extraction",
+        )
+    except RuntimeError as exc:
+        synthesizer_base_url = os.getenv("SYNTHESIZER_BASE_URL", "")
+        synthesizer_api_key = os.getenv("SYNTHESIZER_API_KEY", "")
+        synthesizer_model = os.getenv("SYNTHESIZER_MODEL", "")
+        raise RuntimeError(
+            "知识图谱抽取失败：无法完成大模型实体关系抽取。"
+            "请检查模型服务可用性以及网络连通性。"
+            f" 当前配置: SYNTHESIZER_MODEL={synthesizer_model or '<empty>'},"
+            f" SYNTHESIZER_BASE_URL={synthesizer_base_url or '<empty>'},"
+            f" SYNTHESIZER_API_KEY={synthesizer_api_key or '<empty>'}。"
+            f" 原始错误：{exc}"
+        ) from exc
     results = [res for res in results if res]
 
     nodes = defaultdict(list)
