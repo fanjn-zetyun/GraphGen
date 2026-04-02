@@ -73,10 +73,22 @@ class CoTGenerator(BaseGenerator):
         :param response:
         :return: dict with question and reasoning_path
         """
-        question_match = re.search(r"<question>(.*?)</question>", response, re.DOTALL)
-        reasoning_path_match = re.search(
-            r"<reasoning_path>(.*?)</reasoning_path>", response, re.DOTALL
+        question_match = re.search(
+            r"QUESTION_START\s*(.*?)\s*QUESTION_END", response, re.DOTALL
         )
+        reasoning_path_match = re.search(
+            r"REASONING_PATH_START\s*(.*?)\s*REASONING_PATH_END",
+            response,
+            re.DOTALL,
+        )
+        if not question_match:
+            question_match = re.search(
+                r"<question>(.*?)</question>", response, re.DOTALL
+            )
+        if not reasoning_path_match:
+            reasoning_path_match = re.search(
+                r"<reasoning_path>(.*?)</reasoning_path>", response, re.DOTALL
+            )
 
         if question_match and reasoning_path_match:
             question = question_match.group(1).strip()

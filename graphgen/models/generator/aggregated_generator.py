@@ -64,8 +64,14 @@ class AggregatedGenerator(BaseGenerator):
         :return: rephrased text
         """
         rephrased_match = re.search(
-            r"<rephrased_text>(.*?)</rephrased_text>", response, re.DOTALL
+            r"REPHRASED_TEXT_START\s*(.*?)\s*REPHRASED_TEXT_END",
+            response,
+            re.DOTALL,
         )
+        if not rephrased_match:
+            rephrased_match = re.search(
+                r"<rephrased_text>(.*?)</rephrased_text>", response, re.DOTALL
+            )
         if rephrased_match:
             rephrased_text = rephrased_match.group(1).strip()
         else:
@@ -88,7 +94,13 @@ class AggregatedGenerator(BaseGenerator):
 
     @staticmethod
     def parse_response(response: str) -> dict:
-        question_match = re.search(r"<question>(.*?)</question>", response, re.DOTALL)
+        question_match = re.search(
+            r"QUESTION_START\s*(.*?)\s*QUESTION_END", response, re.DOTALL
+        )
+        if not question_match:
+            question_match = re.search(
+                r"<question>(.*?)</question>", response, re.DOTALL
+            )
         if question_match:
             question = question_match.group(1).strip()
         else:

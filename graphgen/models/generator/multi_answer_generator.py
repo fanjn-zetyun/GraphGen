@@ -24,7 +24,11 @@ class MultiAnswerGenerator(BaseGenerator):
         qa_pairs = []
 
         # Extract all QA pair blocks
-        qa_blocks = re.findall(r"<qa_pair>(.*?)</qa_pair>", response, re.DOTALL)
+        qa_blocks = re.findall(
+            r"QA_PAIR_START\s*(.*?)\s*QA_PAIR_END", response, re.DOTALL
+        )
+        if not qa_blocks:
+            qa_blocks = re.findall(r"<qa_pair>(.*?)</qa_pair>", response, re.DOTALL)
 
         if not qa_blocks:
             logger.warning("No QA pairs found in response: %s", response)
@@ -32,14 +36,22 @@ class MultiAnswerGenerator(BaseGenerator):
 
         for block in qa_blocks:
             # Extract and clean question text
-            q_match = re.search(r"<question>(.*?)</question>", block, re.DOTALL)
+            q_match = re.search(
+                r"QUESTION_START\s*(.*?)\s*QUESTION_END", block, re.DOTALL
+            )
+            if not q_match:
+                q_match = re.search(r"<question>(.*?)</question>", block, re.DOTALL)
             if not q_match:
                 logger.warning("Failed to parse question from block: %s", block)
                 continue
             question = q_match.group(1).strip().strip('"').strip("'")
 
             # Extract and parse options (A, B, C, D)
-            opt_match = re.search(r"<options>(.*?)</options>", block, re.DOTALL)
+            opt_match = re.search(
+                r"OPTIONS_START\s*(.*?)\s*OPTIONS_END", block, re.DOTALL
+            )
+            if not opt_match:
+                opt_match = re.search(r"<options>(.*?)</options>", block, re.DOTALL)
             if not opt_match:
                 logger.warning("Failed to parse options from block: %s", block)
                 continue
@@ -56,7 +68,11 @@ class MultiAnswerGenerator(BaseGenerator):
                     options[letter] = text.strip()
 
             # Extract and validate answer
-            ans_match = re.search(r"<answer>(.*?)</answer>", block, re.DOTALL)
+            ans_match = re.search(
+                r"ANSWER_START\s*(.*?)\s*ANSWER_END", block, re.DOTALL
+            )
+            if not ans_match:
+                ans_match = re.search(r"<answer>(.*?)</answer>", block, re.DOTALL)
             if not ans_match:
                 logger.warning("Failed to parse answer from block: %s", block)
                 continue

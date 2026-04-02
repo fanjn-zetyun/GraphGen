@@ -9,22 +9,34 @@ TEMPLATE_ZH = """请根据上下文资料生成独立的知识问答填空题。
 
 输出格式：
 <qa_pairs>
-<qa_pair>
-<question>问题文本（使用________作为占位符）</question>
-<answer>正确答案文本（多个空用逗号分隔）</answer>
-</qa_pair>
+QA_PAIR_START
+QUESTION_START
+问题文本（使用________作为占位符）
+QUESTION_END
+ANSWER_START
+正确答案文本（多个空用逗号分隔）
+ANSWER_END
+QA_PAIR_END
 </qa_pairs>
 
 示例（根据iPad Air 2生成2题）：
 <qa_pairs>
-<qa_pair>
-<question>iPad Air 2 是由________制造的？</question>
-<answer>美国苹果公司（Apple）</answer>
-</qa_pair>
-<qa_pair>
-<question>iPad Air 2 的发布日期是________，上市日期是________。</question>
-<answer>2014年10月16日，2014年10月22日</answer>
-</qa_pair>
+QA_PAIR_START
+QUESTION_START
+iPad Air 2 是由________制造的？
+QUESTION_END
+ANSWER_START
+美国苹果公司（Apple）
+ANSWER_END
+QA_PAIR_END
+QA_PAIR_START
+QUESTION_START
+iPad Air 2 的发布日期是________，上市日期是________。
+QUESTION_END
+ANSWER_START
+2014年10月16日，2014年10月22日
+ANSWER_END
+QA_PAIR_END
 </qa_pairs>
 
 
@@ -47,22 +59,34 @@ Requirements:
 
 Output Format:
 <qa_pairs>
-<qa_pair>
-<question>Question text (use ________ as placeholder)</question>
-<answer>Correct answer text (separate multiple blanks with commas)</answer>
-</qa_pair>
+QA_PAIR_START
+QUESTION_START
+Question text (use ________ as placeholder)
+QUESTION_END
+ANSWER_START
+Correct answer text (separate multiple blanks with commas)
+ANSWER_END
+QA_PAIR_END
 </qa_pairs>
 
 Example (2 questions):
 <qa_pairs>
-<qa_pair>
-<question>The iPad Air 2 was manufactured by ________?</question>
-<answer>Apple Inc.</answer>
-</qa_pair>
-<qa_pair>
-<question>The iPad Air 2 was released on ________ and launched on ________.</question>
-<answer>October 16, 2014, October 22, 2014</answer>
-</qa_pair>
+QA_PAIR_START
+QUESTION_START
+The iPad Air 2 was manufactured by ________?
+QUESTION_END
+ANSWER_START
+Apple Inc.
+ANSWER_END
+QA_PAIR_END
+QA_PAIR_START
+QUESTION_START
+The iPad Air 2 was released on ________ and launched on ________.
+QUESTION_END
+ANSWER_START
+October 16, 2014, October 22, 2014
+ANSWER_END
+QA_PAIR_END
 </qa_pairs>
 
 Context:

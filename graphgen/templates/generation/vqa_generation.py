@@ -43,10 +43,18 @@ Create multiple sets of VQA question-answer pairs that satisfy the following:
 Please directly output the generated questions and answers, do not directly copy the example questions and answers, and do not provide irrelevant information.
 
 Here is the response format you should follow:
-<question>question1</question>
-<answer>answer1</answer>
-<question>question2</question>
-<answer>answer2</answer>
+QUESTION_START
+question1
+QUESTION_END
+ANSWER_START
+answer1
+ANSWER_END
+QUESTION_START
+question2
+QUESTION_END
+ANSWER_START
+answer2
+ANSWER_END
 
 Output:
 """
@@ -96,10 +104,18 @@ TEMPLATE_ZH: str = """---角色---
 
 请直接输出生成的问题和答案，不要直接复制示例问题和答案，也不要提供无关信息。
 以下是你应遵循的响应格式：
-<question>question1</question>
-<answer>answer1</answer>
-<question>question2</question>
-<answer>answer2</answer>
+QUESTION_START
+question1
+QUESTION_END
+ANSWER_START
+answer1
+ANSWER_END
+QUESTION_START
+question2
+QUESTION_END
+ANSWER_START
+answer2
+ANSWER_END
 
 输出：
 """

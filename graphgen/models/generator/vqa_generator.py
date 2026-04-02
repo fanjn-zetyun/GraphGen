@@ -40,8 +40,17 @@ class VQAGenerator(BaseGenerator):
         :return: QA pairs
         """
         qa_pairs = []
-        pattern = r"<question>(.*?)</question>\s*<answer>(.*?)</answer>"
+        pattern = (
+            r"QUESTION_START\s*(.*?)\s*QUESTION_END\s*"
+            r"ANSWER_START\s*(.*?)\s*ANSWER_END"
+        )
         matches = re.findall(pattern, response, re.DOTALL)
+        if not matches:
+            matches = re.findall(
+                r"<question>(.*?)</question>\s*<answer>(.*?)</answer>",
+                response,
+                re.DOTALL,
+            )
 
         if matches:
             for question, answer in matches:

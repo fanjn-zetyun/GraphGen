@@ -33,8 +33,18 @@ class MultiHopGenerator(BaseGenerator):
 
     @staticmethod
     def parse_response(response: str) -> list[dict]:
-        question_match = re.search(r"<question>(.*?)</question>", response, re.DOTALL)
-        answer_match = re.search(r"<answer>(.*?)</answer>", response, re.DOTALL)
+        question_match = re.search(
+            r"QUESTION_START\s*(.*?)\s*QUESTION_END", response, re.DOTALL
+        )
+        answer_match = re.search(
+            r"ANSWER_START\s*(.*?)\s*ANSWER_END", response, re.DOTALL
+        )
+        if not question_match:
+            question_match = re.search(
+                r"<question>(.*?)</question>", response, re.DOTALL
+            )
+        if not answer_match:
+            answer_match = re.search(r"<answer>(.*?)</answer>", response, re.DOTALL)
 
         if question_match and answer_match:
             question = question_match.group(1).strip()
