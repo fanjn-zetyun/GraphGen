@@ -26,6 +26,86 @@ log() {
     echo "[${timestamp}] [${level}] ${message}" | tee -a "${LOG_FILE}"
 }
 
+notify_callback() {
+    local result_path="$1"
+    local callback_stdout
+    local callback_stderr
+
+    if [ -z "$CALLBACK_URL" ]; then
+        log "ERROR" "CALLBACK_URL 环境变量未设置，无法回调结果"
+        return 1
+    fi
+
+    if [ -z "$TASK_ID" ]; then
+        log "ERROR" "TASK_ID 环境变量未设置，无法回调结果"
+        return 1
+    fi
+
+    log "INFO" "开始回调结果接口: ${CALLBACK_URL}"
+
+    callback_stdout=$(mktemp)
+    callback_stderr=$(mktemp)
+
+    if CALLBACK_URL="$CALLBACK_URL" TASK_ID="$TASK_ID" RESULT_PATH="$result_path" python3 - <<'PY' >"$callback_stdout" 2>"$callback_stderr"
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+callback_url = os.environ["CALLBACK_URL"]
+task_id = os.environ["TASK_ID"]
+result_path = os.environ["RESULT_PATH"]
+
+payload = [
+    {
+        "id": task_id,
+        "resultPath": result_path,
+    }
+]
+data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+request = urllib.request.Request(
+    callback_url,
+    data=data,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read().decode("utf-8", errors="replace").strip()
+        print(f"HTTP {response.status}")
+        if body:
+            print(body[:1000])
+except urllib.error.HTTPError as exc:
+    body = exc.read().decode("utf-8", errors="replace").strip()
+    print(f"HTTP {exc.code}", file=sys.stderr)
+    if body:
+        print(body[:1000], file=sys.stderr)
+    raise
+PY
+    then
+        while IFS= read -r line; do
+            [ -n "$line" ] && log "INFO" "[callback] ${line}"
+        done < "$callback_stdout"
+    else
+        while IFS= read -r line; do
+            [ -n "$line" ] && log "ERROR" "[callback] ${line}"
+        done < "$callback_stderr"
+        while IFS= read -r line; do
+            [ -n "$line" ] && log "INFO" "[callback] ${line}"
+        done < "$callback_stdout"
+        rm -f "$callback_stdout" "$callback_stderr"
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        [ -n "$line" ] && log "ERROR" "[callback] ${line}"
+    done < "$callback_stderr"
+
+    rm -f "$callback_stdout" "$callback_stderr"
+}
+
 log "INFO" "=========================================="
 log "INFO" "GraphGen Entrypoint 启动"
 log "INFO" "=========================================="
@@ -170,6 +250,11 @@ if [ -n "$FINAL_OUTPUT_PATH" ]; then
         
         if [ -s "$TARGET_PATH" ]; then
             log "INFO" "输出文件已保存到: ${TARGET_PATH}"
+            if notify_callback "$TARGET_PATH"; then
+                log "INFO" "结果回调成功"
+            else
+                log "ERROR" "结果回调失败"
+            fi
         else
             log "ERROR" "输出文件为空或生成失败"
             exit 1
