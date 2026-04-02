@@ -122,7 +122,7 @@ MMKG_EXTRACTION_PROMPT: dict = {
     "en": TEMPLATE_EN,
     "zh": TEMPLATE_ZH,
     "FORMAT": {
-        "tuple_delimiter": "<|>",
+        "tuple_delimiter": "|||",
         "record_delimiter": "##",
         "completion_delimiter": "<|COMPLETE|>",
         "entity_types": "concept, date, location, keyword, organization, person, event, work, nature, artificial, \

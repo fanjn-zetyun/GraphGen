@@ -33,7 +33,7 @@ KG_SUMMARIZATION_PROMPT = {
     "zh": {"TEMPLATE": TEMPLATE_ZH},
     "en": {"TEMPLATE": TEMPLATE_EN},
     "FORMAT": {
-        "tuple_delimiter": "<|>",
+        "tuple_delimiter": "|||",
         "record_delimiter": "##",
         "completion_delimiter": "<|COMPLETE|>",
     },
