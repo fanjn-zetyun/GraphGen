@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import time
 
@@ -57,11 +58,33 @@ def apply_local_overrides(config, args):
     return config
 
 
+def apply_graphgen_params_env():
+    graphgen_params = os.environ.get("GRAPHGEN_PARAMS")
+    if not graphgen_params:
+        return
+
+    params = json.loads(graphgen_params)
+    os.environ.setdefault("SYNTHESIZER_BACKEND", "openai_api")
+    os.environ.setdefault(
+        "SYNTHESIZER_MODEL",
+        params.get("model_name") or params.get("synthesizer_model", ""),
+    )
+    os.environ.setdefault(
+        "SYNTHESIZER_BASE_URL",
+        params.get("base_url") or params.get("synthesizer_url", ""),
+    )
+    os.environ.setdefault("SYNTHESIZER_API_KEY", params.get("api_key", ""))
+    os.environ.setdefault("TOKENIZER_MODEL", params.get("tokenizer", "cl100k_base"))
+    os.environ.setdefault("RPM", str(params.get("rpm", 1000)))
+    os.environ.setdefault("TPM", str(params.get("tpm", 50000)))
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
 
     os.environ["GRAPHGEN_RUNTIME"] = "local"
+    apply_graphgen_params_env()
 
     with open(args.config_file, "r", encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)

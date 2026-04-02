@@ -9,6 +9,11 @@ from graphgen.common.init_storage import init_storage
 from graphgen.utils import compute_dict_hash
 
 
+class _LocalValidationReader(BaseReader):
+    def read(self, input_path):
+        raise NotImplementedError("Local validation reader does not implement read().")
+
+
 def _ensure_records(data: Any) -> list[dict]:
     if isinstance(data, dict):
         return [data]
@@ -18,9 +23,7 @@ def _ensure_records(data: Any) -> list[dict]:
 
 
 def _validate_records(records: list[dict]) -> list[dict]:
-    reader = BaseReader.__new__(BaseReader)
-    reader.text_column = "content"
-    reader.modalities = ["text"]
+    reader = _LocalValidationReader(text_column="content", modalities=["text"])
 
     batch = pd.DataFrame(records)
     batch = reader._validate_batch(batch)
