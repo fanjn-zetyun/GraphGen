@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, List, Union
 
@@ -50,6 +51,32 @@ def _read_text_with_fallback(source_path: str) -> str:
     )
 
 
+def _read_pdf_text(source_path: str) -> str:
+    try:
+        result = subprocess.run(
+            ["pdftotext", "-layout", source_path, "-"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "pdftotext is not installed or not found in PATH, cannot read PDF input in local runtime."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        error_output = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(
+            f"Failed to extract text from PDF {source_path}: {error_output}"
+        ) from exc
+
+    content = result.stdout.strip()
+    if not content:
+        raise ValueError(f"No text extracted from PDF file: {source_path}")
+    return content
+
+
 def local_read(
     input_path: Union[str, List[str]],
     working_dir: str = "cache",
@@ -69,6 +96,14 @@ def local_read(
             {
                 "type": "text",
                 "content": _read_text_with_fallback(source_path),
+                "path": source_path,
+            }
+        ]
+    elif suffix == ".pdf":
+        records = [
+            {
+                "type": "text",
+                "content": _read_pdf_text(source_path),
                 "path": source_path,
             }
         ]
@@ -94,7 +129,7 @@ def local_read(
     else:
         raise ValueError(
             f"Unsupported input suffix for local runtime: {suffix}. "
-            "Supported: .txt, .md, .json, .jsonl, .csv"
+            "Supported: .txt, .md, .pdf, .json, .jsonl, .csv"
         )
 
     for item in records:
