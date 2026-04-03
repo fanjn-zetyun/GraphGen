@@ -108,7 +108,9 @@ class OpenAIClient(BaseLLMWrapper):
 
         kwargs["messages"] = messages
         if self.backend == "openai_api":
-            kwargs["request_source"] = "ONLINE_WEB"
+            extra_body = kwargs.get("extra_body") or {}
+            extra_body["request_source"] = "ONLINE_WEB"
+            kwargs["extra_body"] = extra_body
         return kwargs
 
     @retry(

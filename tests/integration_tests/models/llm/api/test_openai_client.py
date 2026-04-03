@@ -53,7 +53,7 @@ def test_generate_answer_includes_request_source(openai_client: OpenAIClient):
     assert result == "hello  world"
     call = openai_client.client.chat.completions.create.call_args
     assert call.kwargs["model"] == "gpt-4o-mini"
-    assert call.kwargs["request_source"] == "ONLINE_WEB"
+    assert call.kwargs["extra_body"]["request_source"] == "ONLINE_WEB"
     assert openai_client.token_usage[-1] == {
         "prompt_tokens": 3,
         "completion_tokens": 2,
@@ -65,6 +65,6 @@ def test_generate_topk_per_token_includes_request_source(openai_client: OpenAICl
     asyncio.run(openai_client.generate_topk_per_token("hello"))
 
     call = openai_client.client.chat.completions.create.call_args
-    assert call.kwargs["request_source"] == "ONLINE_WEB"
+    assert call.kwargs["extra_body"]["request_source"] == "ONLINE_WEB"
     assert call.kwargs["logprobs"] is True
     assert call.kwargs["top_logprobs"] == openai_client.topk_per_token
