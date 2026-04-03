@@ -107,6 +107,8 @@ class OpenAIClient(BaseLLMWrapper):
             messages = history + messages
 
         kwargs["messages"] = messages
+        if self.backend == "openai_api":
+            kwargs["request_source"] = "ONLINE_WEB"
         return kwargs
 
     @retry(
