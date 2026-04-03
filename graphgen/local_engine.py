@@ -2,7 +2,7 @@ import inspect
 import json
 import os
 from collections import defaultdict, deque
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -164,6 +164,7 @@ class LocalEngine:
         input_df: pd.DataFrame,
         batch_size: Any,
         aggregate: bool = False,
+        output_file: Optional[str] = None,
     ) -> pd.DataFrame:
         if input_df.empty and not aggregate:
             return pd.DataFrame()
@@ -180,6 +181,8 @@ class LocalEngine:
                 continue
             for out in operator(batch.copy()):
                 if out is not None and not out.empty:
+                    if output_file:
+                        self._append_output_chunk(output_file, out)
                     outputs.append(out)
 
         if not outputs:
@@ -187,23 +190,40 @@ class LocalEngine:
 
         return pd.concat(outputs, ignore_index=True)
 
-    def _save_output(self, node: Node, output_dir: str):
+    def _get_output_file(self, node: Node, output_dir: str) -> str:
         node_output_path = os.path.join(output_dir, node.id)
         os.makedirs(node_output_path, exist_ok=True)
+        return os.path.join(node_output_path, f"{node.id}.jsonl")
 
-        ds = self.datasets[node.id].copy()
+    def _append_output_chunk(self, output_file: str, ds: pd.DataFrame):
         cols_to_drop = [c for c in ds.columns if c.startswith("_")]
         if cols_to_drop:
             ds = ds.drop(columns=cols_to_drop)
 
-        output_file = os.path.join(node_output_path, f"{node.id}.jsonl")
-        with open(output_file, "w", encoding="utf-8") as f:
+        if ds.empty:
+            return
+
+        with open(output_file, "a", encoding="utf-8") as f:
             for row in ds.to_dict(orient="records"):
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    def _init_output_stream(self, node: Node, output_dir: str) -> str:
+        output_file = self._get_output_file(node, output_dir)
+        with open(output_file, "w", encoding="utf-8"):
+            pass
+        return output_file
+
+    def _save_output(self, node: Node, output_dir: str):
+        output_file = self._get_output_file(node, output_dir)
+        ds = self.datasets[node.id].copy()
+        with open(output_file, "w", encoding="utf-8"):
+            pass
+        self._append_output_chunk(output_file, ds)
         logger.info("Node %s output saved to %s", node.id, output_file)
 
-    def _execute_node(self, node: Node, initial_df: pd.DataFrame):
+    def _execute_node(
+        self, node: Node, initial_df: pd.DataFrame, output_dir: Optional[str] = None
+    ) -> Optional[str]:
         if node.op_name not in self.functions:
             raise ValueError(f"Operator {node.op_name} not found for node {node.id}")
 
@@ -216,7 +236,7 @@ class LocalEngine:
                     f"Local runtime currently only supports 'read' as a source operator, got {node.op_name}."
                 )
             self.datasets[node.id] = local_read(**node_params)
-            return
+            return None
 
         input_df = self._get_input_dataset(node, initial_df)
 
@@ -229,12 +249,17 @@ class LocalEngine:
 
         execution_params = node.execution_params or {}
         batch_size = execution_params.get("batch_size", "default")
+        output_file = None
+        if getattr(node, "save_output", False) and output_dir:
+            output_file = self._init_output_stream(node, output_dir)
         self.datasets[node.id] = self._apply_operator(
             operator,
             input_df,
             batch_size=batch_size,
             aggregate=node.type == "aggregate",
+            output_file=output_file,
         )
+        return output_file
 
     def execute(
         self, initial_df: pd.DataFrame, output_dir: str
@@ -243,8 +268,11 @@ class LocalEngine:
 
         for node in sorted_nodes:
             logger.info("Executing node %s of type %s", node.id, node.type)
-            self._execute_node(node, initial_df)
+            output_file = self._execute_node(node, initial_df, output_dir=output_dir)
             if getattr(node, "save_output", False):
-                self._save_output(node, output_dir)
+                if output_file:
+                    logger.info("Node %s output saved to %s", node.id, output_file)
+                else:
+                    self._save_output(node, output_dir)
 
         return self.datasets

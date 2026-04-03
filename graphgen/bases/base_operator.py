@@ -93,16 +93,36 @@ class BaseOperator(ABC):
             data = to_process.to_dict(orient="records")
             result, meta_update = self.process(data)
             if inspect.isgenerator(result):
-                is_first = True
                 for res in result:
-                    yield pd.DataFrame([res])
-                    self.store([res], meta_update if is_first else {})
-                    is_first = False
+                    chunk_results, chunk_meta_update = self._normalize_stream_chunk(
+                        res, fallback_meta_update=meta_update
+                    )
+                    if not chunk_results:
+                        continue
+                    yield pd.DataFrame(chunk_results)
+                    self.store(chunk_results, chunk_meta_update)
             else:
                 yield pd.DataFrame(result)
                 self.store(result, meta_update)
         finally:
             CURRENT_LOGGER_VAR.reset(logger_token)
+
+    @staticmethod
+    def _normalize_stream_chunk(
+        chunk: object, fallback_meta_update: dict
+    ) -> tuple[list[dict], dict]:
+        if (
+            isinstance(chunk, tuple)
+            and len(chunk) == 2
+            and isinstance(chunk[0], list)
+            and isinstance(chunk[1], dict)
+        ):
+            return chunk[0], chunk[1]
+
+        if isinstance(chunk, list):
+            return chunk, fallback_meta_update
+
+        return [chunk], fallback_meta_update
 
     def get_logger(self):
         return self.logger
