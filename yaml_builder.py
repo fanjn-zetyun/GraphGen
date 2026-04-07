@@ -223,8 +223,8 @@ def build_config(params):
 
     # 完整配置
     logger.info("组装完整配置...")
-    # 使用固定的临时工作目录，最终输出路径由 final_output_path 指定
-    working_dir = "/tmp/graphgen_workspace"
+    # 使用 entrypoint 传入的工作目录；若未指定则回退到默认路径
+    working_dir = os.environ.get("GRAPHGEN_WORKSPACE_DIR", "/tmp/graphgen_workspace")
     config = {
         "global_params": {
             "working_dir": working_dir,

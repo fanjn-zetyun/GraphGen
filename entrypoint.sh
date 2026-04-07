@@ -32,6 +32,30 @@ GRAPHGEN_WORKSPACE_DIR="/tmp/graphgen_workspace"
 GRAPHGEN_CURRENT_OUTPUT_DIR=""
 FINAL_OUTPUT_PATH=""
 
+sanitize_path_component() {
+    local raw_value="$1"
+    if [ -z "$raw_value" ]; then
+        return 1
+    fi
+
+    printf '%s' "$raw_value" | tr -cs 'A-Za-z0-9._-' '_'
+}
+
+resolve_workspace_dir() {
+    local task_component=""
+
+    if [ -n "$TASK_ID" ]; then
+        task_component=$(sanitize_path_component "$TASK_ID")
+    fi
+
+    if [ -z "$task_component" ]; then
+        task_component="run_${TIMESTAMP}"
+    fi
+
+    GRAPHGEN_WORKSPACE_DIR="/tmp/graphgen_workspace/${task_component}"
+    export GRAPHGEN_WORKSPACE_DIR
+}
+
 resolve_final_output_path() {
     if [ -n "$FINAL_OUTPUT_PATH" ]; then
         return 0
@@ -305,10 +329,12 @@ if params.get('if_trainee_model'):
 
 log "INFO" "设置 LLM 环境变量..."
 setup_llm_env
+resolve_workspace_dir
 log "INFO" "TOKENIZER_MODEL=$TOKENIZER_MODEL"
 log "INFO" "SYNTHESIZER_MODEL=$SYNTHESIZER_MODEL"
 log "INFO" "SYNTHESIZER_BASE_URL=$SYNTHESIZER_BASE_URL"
 log "INFO" "OUTPUT_DIR=$OUTPUT_DIR"
+log "INFO" "GRAPHGEN_WORKSPACE_DIR=$GRAPHGEN_WORKSPACE_DIR"
 
 log "INFO" "步骤 1/2: 构建GraphGen配置..."
 log "INFO" "执行 yaml_builder.py"
@@ -325,7 +351,7 @@ log "INFO" "执行 graphgen.run_local"
 
 python3 -m graphgen.run_local \
     --config_file /tmp/graphgen_config.yaml \
-    --working_dir /tmp/graphgen_workspace \
+    --working_dir "$GRAPHGEN_WORKSPACE_DIR" \
     --kv_backend json_kv \
     --graph_backend networkx &
 GRAPHGEN_RUN_PID=$!
