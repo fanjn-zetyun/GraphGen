@@ -252,6 +252,11 @@ class LocalEngine:
         output_file = None
         if getattr(node, "save_output", False) and output_dir:
             output_file = self._init_output_stream(node, output_dir)
+            if node.id == "generate" or node.op_name == "generate":
+                logger.info(
+                    "Dataset generation started. Streaming partial results to %s",
+                    output_file,
+                )
         self.datasets[node.id] = self._apply_operator(
             operator,
             input_df,
