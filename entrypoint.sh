@@ -41,7 +41,7 @@ notify_callback() {
         return 1
     fi
 
-    log "INFO" "开始回调结果接口: ${CALLBACK_URL}"
+    log "INFO" "开始回调结果接口"
 
     callback_stdout=$(mktemp)
     callback_stderr=$(mktemp)
