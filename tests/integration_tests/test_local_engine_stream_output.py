@@ -1,10 +1,12 @@
 import json
+import logging
 
 import pandas as pd
 import pytest
 
 from graphgen.bases.datatypes import Node
 from graphgen.local_engine import LocalEngine
+from graphgen.utils.log import CURRENT_LOGGER_VAR
 
 
 class StreamingFailOperator:
@@ -37,8 +39,12 @@ def test_stream_output_persists_partial_results_on_failure(tmp_path):
         save_output=True,
     )
 
-    with pytest.raises(RuntimeError, match="stream interrupted"):
-        engine._execute_node(node, pd.DataFrame(), output_dir=str(tmp_path))
+    logger_token = CURRENT_LOGGER_VAR.set(logging.getLogger("test-local-engine"))
+    try:
+        with pytest.raises(RuntimeError, match="stream interrupted"):
+            engine._execute_node(node, pd.DataFrame(), output_dir=str(tmp_path))
+    finally:
+        CURRENT_LOGGER_VAR.reset(logger_token)
 
     output_file = tmp_path / "generate" / "generate.jsonl"
     assert output_file.exists()

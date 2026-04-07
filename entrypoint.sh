@@ -26,6 +26,137 @@ log() {
     echo "[${timestamp}] [${level}] ${message}" | tee -a "${LOG_FILE}"
 }
 
+GRAPHGEN_RUN_PID=""
+GRAPHGEN_INTERRUPTED=0
+GRAPHGEN_WORKSPACE_DIR="/tmp/graphgen_workspace"
+GRAPHGEN_CURRENT_OUTPUT_DIR=""
+FINAL_OUTPUT_PATH=""
+
+resolve_final_output_path() {
+    if [ -n "$FINAL_OUTPUT_PATH" ]; then
+        return 0
+    fi
+
+    if [ ! -f /tmp/graphgen_config.yaml ]; then
+        return 1
+    fi
+
+    FINAL_OUTPUT_PATH=$(python3 -c "
+import yaml
+with open('/tmp/graphgen_config.yaml', 'r', encoding='utf-8') as f:
+    config = yaml.safe_load(f)
+print(config.get('global_params', {}).get('final_output_path', ''))
+")
+    [ -n "$FINAL_OUTPUT_PATH" ]
+}
+
+detect_current_output_dir() {
+    if [ -n "$GRAPHGEN_CURRENT_OUTPUT_DIR" ] && [ -d "$GRAPHGEN_CURRENT_OUTPUT_DIR" ]; then
+        return 0
+    fi
+
+    GRAPHGEN_CURRENT_OUTPUT_DIR=$(find "${GRAPHGEN_WORKSPACE_DIR}/output" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+    [ -n "$GRAPHGEN_CURRENT_OUTPUT_DIR" ] && [ -d "$GRAPHGEN_CURRENT_OUTPUT_DIR" ]
+}
+
+publish_result_file() {
+    local source_dir="$1"
+    local callback_label="${2:-完整结果}"
+    local src_ext
+    local dirname
+    local filename
+    local target_path
+    local counter
+
+    if ! resolve_final_output_path; then
+        log "WARNING" "未能解析 final_output_path，跳过${callback_label}发布"
+        return 1
+    fi
+
+    if [ ! -d "$source_dir" ]; then
+        log "WARNING" "结果目录不存在，跳过${callback_label}发布: ${source_dir}"
+        return 1
+    fi
+
+    if ls "${source_dir}"/*.jsonl >/dev/null 2>&1; then
+        src_ext="jsonl"
+    elif ls "${source_dir}"/*.json >/dev/null 2>&1; then
+        src_ext="json"
+    else
+        log "WARNING" "结果目录中未找到可发布文件，跳过${callback_label}发布: ${source_dir}"
+        return 1
+    fi
+
+    dirname=$(dirname "$FINAL_OUTPUT_PATH")
+    filename=$(basename "$FINAL_OUTPUT_PATH")
+    mkdir -p "$dirname"
+    target_path="${FINAL_OUTPUT_PATH}.${src_ext}"
+
+    if [ -e "$target_path" ]; then
+        counter=1
+        while [ -e "${dirname}/${filename}_${counter}.${src_ext}" ]; do
+            counter=$((counter + 1))
+        done
+        target_path="${dirname}/${filename}_${counter}.${src_ext}"
+        log "INFO" "${callback_label}文件已存在重名，使用新文件名: ${target_path}"
+    fi
+
+    cat "${source_dir}"/*.${src_ext} > "$target_path" 2>/dev/null || true
+    if [ ! -s "$target_path" ]; then
+        log "WARNING" "${callback_label}文件为空，跳过回调: ${target_path}"
+        return 1
+    fi
+
+    log "INFO" "${callback_label}已保存到: ${target_path}"
+    if notify_callback "$target_path"; then
+        log "INFO" "${callback_label}回调成功"
+        return 0
+    fi
+
+    log "ERROR" "${callback_label}回调失败"
+    return 1
+}
+
+publish_partial_result_if_available() {
+    local generate_dir
+
+    if ! detect_current_output_dir; then
+        log "WARNING" "当前运行输出目录尚未创建，无法发布部分结果"
+        return 1
+    fi
+
+    generate_dir="${GRAPHGEN_CURRENT_OUTPUT_DIR}/generate"
+    if [ ! -d "$generate_dir" ]; then
+        log "WARNING" "数据集生成尚未开始，未找到 generate 目录，跳过部分结果回调"
+        return 1
+    fi
+
+    publish_result_file "$generate_dir" "部分结果"
+}
+
+handle_interrupt() {
+    local signal_name="${1:-TERM}"
+    local exit_code=143
+    if [ "$signal_name" = "INT" ]; then
+        exit_code=130
+    fi
+
+    if [ "$GRAPHGEN_INTERRUPTED" -eq 1 ]; then
+        return
+    fi
+    GRAPHGEN_INTERRUPTED=1
+
+    log "WARNING" "接收到中断信号 ${signal_name}，尝试发布当前已生成的部分结果"
+    if [ -n "$GRAPHGEN_RUN_PID" ]; then
+        kill -TERM "$GRAPHGEN_RUN_PID" 2>/dev/null || true
+        wait "$GRAPHGEN_RUN_PID" 2>/dev/null || true
+    fi
+
+    publish_partial_result_if_available || true
+    log "WARNING" "任务因中断结束"
+    exit "$exit_code"
+}
+
 notify_callback() {
     local result_path="$1"
     local callback_stdout
@@ -110,6 +241,9 @@ log "INFO" "=========================================="
 log "INFO" "GraphGen Entrypoint 启动"
 log "INFO" "=========================================="
 
+trap 'handle_interrupt TERM' TERM
+trap 'handle_interrupt INT' INT
+
 # 设置日志文件路径为环境变量，供 Python 进程使用
 export ENTRYPOINT_LOG_FILE="${LOG_FILE}"
 
@@ -189,78 +323,35 @@ fi
 log "INFO" "步骤 2/2: 启动GraphGen 本地模式..."
 log "INFO" "执行 graphgen.run_local"
 
-if python3 -m graphgen.run_local \
+python3 -m graphgen.run_local \
     --config_file /tmp/graphgen_config.yaml \
     --working_dir /tmp/graphgen_workspace \
     --kv_backend json_kv \
-    --graph_backend networkx; then
+    --graph_backend networkx &
+GRAPHGEN_RUN_PID=$!
+
+if wait "$GRAPHGEN_RUN_PID"; then
+    GRAPHGEN_RUN_PID=""
+    detect_current_output_dir || true
     log "INFO" "GraphGen 执行成功"
 else
+    GRAPHGEN_RUN_PID=""
     log "ERROR" "GraphGen 执行失败，退出码: $?"
     exit 1
 fi
 
 log "INFO" "步骤 3/3: 移动输出文件到指定路径..."
 
-# 从配置文件中读取 final_output_path
-FINAL_OUTPUT_PATH=$(python3 -c "
-import yaml
-with open('/tmp/graphgen_config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
-print(config.get('global_params', {}).get('final_output_path', ''))
-")
+resolve_final_output_path || true
 
 if [ -n "$FINAL_OUTPUT_PATH" ]; then
-    # 查找生成的文件 (在 /tmp/graphgen_workspace/output/*/generate/ 目录下)
-    WORKSPACE_DIR="/tmp/graphgen_workspace"
-    
-    # 找到最新的输出目录
-    LATEST_OUTPUT=$(find "${WORKSPACE_DIR}/output" -type d -name "generate" 2>/dev/null | head -1)
-    
-    if [ -d "$LATEST_OUTPUT" ]; then
-        # 创建目标目录
-        FINAL_DIR=$(dirname "$FINAL_OUTPUT_PATH")
-        mkdir -p "$FINAL_DIR"
-        
-         # 检测实际输出的文件后缀（优先 .jsonl，其次 .json）
-        if ls "${LATEST_OUTPUT}"/*.jsonl 2>/dev/null | head -1 | grep -q .; then
-            SRC_EXT="jsonl"
-        else
-            SRC_EXT="json"
-        fi
-
-        # export_path 不含后缀，直接拼上实际输出的后缀
-        DIRNAME=$(dirname "$FINAL_OUTPUT_PATH")
-        FILENAME=$(basename "$FINAL_OUTPUT_PATH")
-        TARGET_PATH="${FINAL_OUTPUT_PATH}.${SRC_EXT}"
-
-        # 处理文件名冲突：如果文件已存在，添加 _1, _2 等后缀
-        if [ -e "$TARGET_PATH" ]; then
-            COUNTER=1
-            while [ -e "${DIRNAME}/${FILENAME}_${COUNTER}.${SRC_EXT}" ]; do
-                COUNTER=$((COUNTER + 1))
-            done
-            TARGET_PATH="${DIRNAME}/${FILENAME}_${COUNTER}.${SRC_EXT}"
-            log "INFO" "文件已存在，使用新文件名: ${TARGET_PATH}"
-        fi
-
-        # 合并所有分片文件到目标路径
-        cat "${LATEST_OUTPUT}"/*.${SRC_EXT} > "$TARGET_PATH" 2>/dev/null || true
-
-        
-        if [ -s "$TARGET_PATH" ]; then
-            log "INFO" "输出文件已保存到: ${TARGET_PATH}"
-            if notify_callback "$TARGET_PATH"; then
-                log "INFO" "结果回调成功"
-            else
-                log "ERROR" "结果回调失败"
-            fi
-        else
-            log "ERROR" "输出文件为空或生成失败"
+    if detect_current_output_dir && [ -d "${GRAPHGEN_CURRENT_OUTPUT_DIR}/generate" ]; then
+        if ! publish_result_file "${GRAPHGEN_CURRENT_OUTPUT_DIR}/generate" "完整结果"; then
+            log "ERROR" "结果文件发布失败"
             exit 1
         fi
     else
-        log "ERROR" "未找到输出目录: ${LATEST_OUTPUT}"
+        log "ERROR" "未找到输出目录: ${GRAPHGEN_CURRENT_OUTPUT_DIR}"
         exit 1
     fi
 else
