@@ -44,18 +44,33 @@ class BuildKGService(BaseOperator):
             if chunk.type in ("image", "video", "table", "formula")
         ]
 
+        logger.info(
+            "Build KG batch received %d chunks: %d text, %d multi-modal",
+            len(chunks),
+            len(text_chunks),
+            len(mm_chunks),
+        )
+
         nodes = []
         edges = []
 
         if len(text_chunks) == 0:
             logger.info("All text chunks are already in the storage")
         else:
-            logger.info("[Text Entity and Relation Extraction] processing ...")
+            logger.info(
+                "[Text Entity and Relation Extraction] starting for %d text chunks",
+                len(text_chunks),
+            )
             text_nodes, text_edges = build_text_kg(
                 llm_client=self.llm_client,
                 kg_instance=self.graph_storage,
                 chunks=text_chunks,
                 max_loop=self.max_loop,
+            )
+            logger.info(
+                "[Text Entity and Relation Extraction] completed with %d merged nodes and %d merged edges",
+                len(text_nodes),
+                len(text_edges),
             )
             nodes += text_nodes
             edges += text_edges
@@ -71,6 +86,9 @@ class BuildKGService(BaseOperator):
             nodes += mm_nodes
             edges += mm_edges
 
+        logger.info(
+            "Writing KG index updates for %d nodes and %d edges", len(nodes), len(edges)
+        )
         self.graph_storage.index_done_callback()
         logger.info("Knowledge graph building completed.")
 
