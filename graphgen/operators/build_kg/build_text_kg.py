@@ -1,5 +1,4 @@
 from collections import defaultdict
-import os
 import time
 from typing import List
 
@@ -50,27 +49,29 @@ def build_text_kg(
         )
         return nodes_data, edges_data
 
-    try:
-        results = run_concurrent(
-            extract_with_logging,
-            chunks,
-            desc="[2/4]Extracting entities and relationships from chunks",
-            unit="chunk",
-            raise_on_error=True,
-            error_context="KG extraction",
+    results = run_concurrent(
+        extract_with_logging,
+        chunks,
+        desc="[2/4]Extracting entities and relationships from chunks",
+        unit="chunk",
+        raise_on_error=False,
+        error_context="KG extraction",
+    )
+    successful_chunk_ids = [
+        chunks[index].id for index, result in enumerate(results) if result is not None
+    ]
+    failed_chunk_ids = [
+        chunks[index].id for index, result in enumerate(results) if result is None
+    ]
+
+    if failed_chunk_ids:
+        logger.warning(
+            "KG extraction exhausted retries for %d/%d chunks. Failed chunk ids: %s",
+            len(failed_chunk_ids),
+            len(chunks),
+            failed_chunk_ids,
         )
-    except RuntimeError as exc:
-        synthesizer_base_url = os.getenv("SYNTHESIZER_BASE_URL", "")
-        synthesizer_api_key = os.getenv("SYNTHESIZER_API_KEY", "")
-        synthesizer_model = os.getenv("SYNTHESIZER_MODEL", "")
-        raise RuntimeError(
-            "知识图谱抽取失败：无法完成大模型实体关系抽取。"
-            "请检查模型服务可用性以及网络连通性。"
-            f" 当前配置: SYNTHESIZER_MODEL={synthesizer_model or '<empty>'},"
-            f" SYNTHESIZER_BASE_URL={synthesizer_base_url or '<empty>'},"
-            f" SYNTHESIZER_API_KEY={synthesizer_api_key or '<empty>'}。"
-            f" 原始错误：{exc}"
-        ) from exc
+
     results = [res for res in results if res]
     logger.info(
         "Merging KG extraction results from %d completed chunks", len(results)
@@ -98,4 +99,4 @@ def build_text_kg(
     )
     logger.info("Relationship merge completed for %d edge groups", len(edges))
 
-    return nodes, edges
+    return nodes, edges, successful_chunk_ids, failed_chunk_ids

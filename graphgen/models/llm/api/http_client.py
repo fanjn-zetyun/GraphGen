@@ -111,11 +111,6 @@ class HTTPClient(BaseLLMWrapper):
             body["response_format"] = {"type": "json_object"}
         return body
 
-    @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
-    )
     async def generate_answer(
         self,
         text: str,

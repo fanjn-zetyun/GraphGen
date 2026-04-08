@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
@@ -13,8 +14,110 @@ logger = logging.getLogger(__name__)
 
 # 特殊标记，表示内容被审核拦截
 CONTENT_MODERATION_BLOCKED = "[CONTENT_MODERATION_BLOCKED]"
+LLM_GENERATE_MAX_ATTEMPTS = 3
+LLM_RETRY_BASE_DELAY_SECONDS = 1.0
 
 _LOCAL_LLM_CACHE: dict[str, BaseLLMWrapper] = {}
+
+
+class LLMRequestExhaustedError(RuntimeError):
+    """Raised when a single LLM request exhausts all retry attempts."""
+
+
+def _is_retryable_generate_error(error: Exception) -> bool:
+    retryable_types: list[type[BaseException]] = [asyncio.TimeoutError, TimeoutError]
+
+    try:
+        import aiohttp
+
+        retryable_types.append(aiohttp.ClientError)
+    except ImportError:
+        pass
+
+    try:
+        import httpx
+
+        retryable_types.extend([httpx.TimeoutException, httpx.TransportError])
+    except ImportError:
+        pass
+
+    try:
+        from openai import APIConnectionError, APITimeoutError, RateLimitError
+
+        retryable_types.extend([APIConnectionError, APITimeoutError, RateLimitError])
+    except ImportError:
+        pass
+
+    return isinstance(error, tuple(retryable_types))
+
+
+async def _generate_answer_with_retry(
+    llm_instance: BaseLLMWrapper,
+    text: str,
+    history: Optional[list[str]] = None,
+    **extra: Any,
+) -> str:
+    try:
+        from graphgen.models.llm.api.openai_client import ContentModerationError
+    except ImportError:
+        class ContentModerationError(Exception):
+            pass
+
+    last_error: Exception | None = None
+    for attempt in range(1, LLM_GENERATE_MAX_ATTEMPTS + 1):
+        try:
+            return await llm_instance.generate_answer(text, history, **extra)
+        except ContentModerationError as e:
+            logger.warning("Content moderation blocked request: %s", str(e))
+            return CONTENT_MODERATION_BLOCKED
+        except Exception as e:  # pragma: no cover - depends on backend/runtime
+            last_error = e
+            if not _is_retryable_generate_error(e) or attempt >= LLM_GENERATE_MAX_ATTEMPTS:
+                break
+
+            logger.warning(
+                "LLM request attempt %d/%d failed with retryable error %s: %s. Retrying.",
+                attempt,
+                LLM_GENERATE_MAX_ATTEMPTS,
+                type(e).__name__,
+                e,
+            )
+            await asyncio.sleep(LLM_RETRY_BASE_DELAY_SECONDS * attempt)
+
+    assert last_error is not None
+    raise LLMRequestExhaustedError(
+        f"LLM request failed after {LLM_GENERATE_MAX_ATTEMPTS} attempts: "
+        f"{type(last_error).__name__}: {last_error}"
+    ) from last_error
+
+
+class LocalRetryingLLMWrapper(BaseLLMWrapper):
+    """Apply shared retry behavior for local-runtime LLM instances."""
+
+    def __init__(self, llm_instance: BaseLLMWrapper):
+        super().__init__(tokenizer=getattr(llm_instance, "tokenizer", None))
+        self.llm_instance = llm_instance
+        self.tokenizer = getattr(llm_instance, "tokenizer", None)
+
+    def __getattr__(self, name: str):
+        return getattr(self.llm_instance, name)
+
+    async def generate_answer(
+        self, text: str, history: Optional[list[str]] = None, **extra: Any
+    ) -> str:
+        return await _generate_answer_with_retry(
+            self.llm_instance, text, history, **extra
+        )
+
+    async def generate_topk_per_token(
+        self, text: str, history: Optional[list[str]] = None, **extra: Any
+    ) -> list:
+        return await self.llm_instance.generate_topk_per_token(text, history, **extra)
+
+    async def generate_inputs_prob(
+        self, text: str, history: Optional[list[str]] = None, **extra: Any
+    ) -> list:
+        return await self.llm_instance.generate_inputs_prob(text, history, **extra)
 
 
 def _build_llm_instance(backend: str, config: Dict[str, Any]):
@@ -62,12 +165,9 @@ class LLMServiceActor:
     async def generate_answer(
         self, text: str, history: Optional[list[str]] = None, **extra: Any
     ) -> str:
-        from graphgen.models.llm.api.openai_client import ContentModerationError
-        try:
-            return await self.llm_instance.generate_answer(text, history, **extra)
-        except ContentModerationError as e:
-            logger.warning("Content moderation blocked request: %s", str(e))
-            return CONTENT_MODERATION_BLOCKED
+        return await _generate_answer_with_retry(
+            self.llm_instance, text, history, **extra
+        )
 
     async def generate_topk_per_token(
         self, text: str, history: Optional[list[str]] = None, **extra: Any
@@ -211,7 +311,9 @@ def init_llm(model_type: str) -> Optional[BaseLLMWrapper]:
     if use_local_runtime():
         cache_key = f"{model_type}:{backend}:{tuple(sorted(config.items()))}"
         if cache_key not in _LOCAL_LLM_CACHE:
-            _LOCAL_LLM_CACHE[cache_key] = _build_llm_instance(backend, config)
+            _LOCAL_LLM_CACHE[cache_key] = LocalRetryingLLMWrapper(
+                _build_llm_instance(backend, config)
+            )
         return _LOCAL_LLM_CACHE[cache_key]
     llm_wrapper = LLMFactory.create_llm(model_type, backend, config)
     return llm_wrapper
