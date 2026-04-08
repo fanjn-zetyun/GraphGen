@@ -150,14 +150,14 @@ class GenerateService(BaseOperator):
                             else "request_failure"
                         )
                         if isinstance(error, ContentModerationError):
-                            logger.error(
+                            logger.warning(
                                 "Generation skipped batch %s for document ids %s due to content moderation: %s",
                                 index,
                                 sorted(doc_ids_by_index.get(index, set())),
                                 error,
                             )
-                            logger.error(
-                                "Moderated source preview for generation batch %s: %s",
+                            logger.warning(
+                                "Content moderation source preview for generation batch %s: %s",
                                 index,
                                 self._get_preview_from_batch_item(item=batch[index]),
                             )

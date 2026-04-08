@@ -13,7 +13,7 @@ from graphgen.utils.loop import create_event_loop
 from tqdm.asyncio import tqdm as tqdm_async
 
 
-def _preview_text(text: str, max_len: int = 180) -> str:
+def _preview_text(text: str, max_len: int = 300) -> str:
     sanitized = " ".join(text.split())
     if len(sanitized) <= max_len:
         return sanitized
@@ -49,13 +49,13 @@ def build_text_kg(
         try:
             nodes_data, edges_data = await kg_builder.extract(chunk)
         except ContentModerationError as e:
-            logger.error(
+            logger.warning(
                 "KG extraction skipped chunk %s due to content moderation: %s",
                 chunk.id,
                 e,
             )
-            logger.error(
-                "Moderated chunk preview for %s: %s",
+            logger.warning(
+                "Content moderation chunk preview for %s: %s",
                 chunk.id,
                 _preview_text(chunk.content),
             )
@@ -98,7 +98,13 @@ def build_text_kg(
                     if isinstance(error, ContentModerationError)
                     else "request_failure"
                 )
-                logger.exception("Task failed at index %s: %s", index, error)
+                if isinstance(error, ContentModerationError):
+                    logger.warning(
+                        "KG extraction skipped chunk at index %s due to content moderation.",
+                        index,
+                    )
+                else:
+                    logger.exception("Task failed at index %s: %s", index, error)
             else:
                 results[index] = result
             pbar.update(1)
