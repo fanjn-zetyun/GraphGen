@@ -4,6 +4,7 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from graphgen.bases import BaseLLMWrapper
+from graphgen.bases.base_llm_wrapper import ContentModerationError
 from graphgen.common.runtime import use_local_runtime
 from graphgen.models import Tokenizer
 
@@ -13,7 +14,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # 特殊标记，表示内容被审核拦截
-CONTENT_MODERATION_BLOCKED = "[CONTENT_MODERATION_BLOCKED]"
 LLM_GENERATE_MAX_ATTEMPTS = 3
 LLM_RETRY_BASE_DELAY_SECONDS = 1.0
 
@@ -57,19 +57,12 @@ async def _generate_answer_with_retry(
     history: Optional[list[str]] = None,
     **extra: Any,
 ) -> str:
-    try:
-        from graphgen.models.llm.api.openai_client import ContentModerationError
-    except ImportError:
-        class ContentModerationError(Exception):
-            pass
-
     last_error: Exception | None = None
     for attempt in range(1, LLM_GENERATE_MAX_ATTEMPTS + 1):
         try:
             return await llm_instance.generate_answer(text, history, **extra)
         except ContentModerationError as e:
-            logger.warning("Content moderation blocked request: %s", str(e))
-            return CONTENT_MODERATION_BLOCKED
+            raise e
         except Exception as e:  # pragma: no cover - depends on backend/runtime
             last_error = e
             if not _is_retryable_generate_error(e) or attempt >= LLM_GENERATE_MAX_ATTEMPTS:

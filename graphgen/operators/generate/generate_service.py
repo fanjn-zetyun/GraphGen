@@ -2,6 +2,7 @@ import asyncio
 from typing import Iterable, Tuple
 
 from graphgen.bases import BaseKVStorage, BaseLLMWrapper, BaseOperator
+from graphgen.bases.base_llm_wrapper import ContentModerationError
 from graphgen.common.init_llm import init_llm
 from graphgen.common.init_storage import init_storage
 from graphgen.utils import logger
@@ -117,6 +118,7 @@ class GenerateService(BaseOperator):
         }
         successful_doc_ids = set()
         failed_indices = set()
+        failed_reason_by_index: dict[int, str] = {}
 
         async def _worker(index: int, triple: tuple):
             try:
@@ -142,12 +144,30 @@ class GenerateService(BaseOperator):
                     index, qa_pairs, error = task.result()
                     if error:
                         failed_indices.add(index)
-                        logger.exception(
-                            "Task failed at index %s during generation for document ids %s: %s",
-                            index,
-                            sorted(doc_ids_by_index.get(index, set())),
-                            error,
+                        failed_reason_by_index[index] = (
+                            "content_moderation"
+                            if isinstance(error, ContentModerationError)
+                            else "request_failure"
                         )
+                        if isinstance(error, ContentModerationError):
+                            logger.error(
+                                "Generation skipped batch %s for document ids %s due to content moderation: %s",
+                                index,
+                                sorted(doc_ids_by_index.get(index, set())),
+                                error,
+                            )
+                            logger.error(
+                                "Moderated source preview for generation batch %s: %s",
+                                index,
+                                self._get_preview_from_batch_item(item=batch[index]),
+                            )
+                        else:
+                            logger.exception(
+                                "Task failed at index %s during generation for document ids %s: %s",
+                                index,
+                                sorted(doc_ids_by_index.get(index, set())),
+                                error,
+                            )
                     else:
                         successful_doc_ids.update(doc_ids_by_index.get(index, set()))
                         formatted_results, meta_update = self._format_results_for_trace(
@@ -166,9 +186,44 @@ class GenerateService(BaseOperator):
                 }
             )
             if failed_doc_ids:
+                doc_reason_sets: dict[str, set[str]] = {}
+                for index in failed_indices:
+                    for doc_id in doc_ids_by_index.get(index, set()):
+                        if doc_id in successful_doc_ids:
+                            continue
+                        doc_reason_sets.setdefault(doc_id, set()).add(
+                            failed_reason_by_index.get(index, "request_failure")
+                        )
+
+                moderation_only_docs = sorted(
+                    doc_id
+                    for doc_id, reasons in doc_reason_sets.items()
+                    if reasons == {"content_moderation"}
+                )
+                request_only_docs = sorted(
+                    doc_id
+                    for doc_id, reasons in doc_reason_sets.items()
+                    if reasons == {"request_failure"}
+                )
+                mixed_docs = sorted(
+                    doc_id
+                    for doc_id, reasons in doc_reason_sets.items()
+                    if len(reasons) > 1
+                )
+
+                if failed_doc_ids == moderation_only_docs:
+                    raise RuntimeError(
+                        "数据集生成失败：以下文档的所有关联分块均因内容审核未通过，任务终止。"
+                        f" document_ids={moderation_only_docs}"
+                    )
+                if failed_doc_ids == request_only_docs:
+                    raise RuntimeError(
+                        "数据集生成失败：以下文档的所有关联分块均因请求失败且重试耗尽，任务终止。"
+                        f" document_ids={request_only_docs}"
+                    )
                 raise RuntimeError(
-                    "数据集生成失败：以下文档的所有关联分块在大模型请求超时/重试 3 次后仍全部失败，任务终止。"
-                    f" document_ids={failed_doc_ids}"
+                    "数据集生成失败：以下文档的所有关联分块均未成功，其中同时包含请求失败和内容审核未通过，任务终止。"
+                    f" document_ids={mixed_docs or failed_doc_ids}"
                 )
             if failed_indices and not successful_doc_ids:
                 failed_trace_ids = sorted(input_trace_ids[index] for index in failed_indices)
@@ -207,6 +262,31 @@ class GenerateService(BaseOperator):
             for chunk_id in chunk_ids
             if chunk_id in chunk_meta_inverse
         }
+
+    @staticmethod
+    def _get_preview_from_batch_item(item: dict, max_len: int = 180) -> str:
+        parts = []
+        for node in item.get("nodes", []):
+            if isinstance(node, (tuple, list)) and len(node) >= 2 and isinstance(
+                node[1], dict
+            ):
+                description = str(node[1].get("description", "")).strip()
+                if description:
+                    parts.append(description)
+        for edge in item.get("edges", []):
+            if isinstance(edge, (tuple, list)) and len(edge) >= 3 and isinstance(
+                edge[2], dict
+            ):
+                description = str(edge[2].get("description", "")).strip()
+                if description:
+                    parts.append(description)
+
+        preview = " ".join(" ".join(parts).split())
+        if not preview:
+            return "<empty>"
+        if len(preview) <= max_len:
+            return preview
+        return f"{preview[:max_len]}..."
 
     def process(self, batch: list) -> Tuple[Iterable[tuple[list[dict], dict]], dict]:
         """

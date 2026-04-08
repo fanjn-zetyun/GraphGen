@@ -1,12 +1,23 @@
 from collections import defaultdict
+import asyncio
 import time
 from typing import List
 
 from graphgen.bases import BaseLLMWrapper
+from graphgen.bases.base_llm_wrapper import ContentModerationError
 from graphgen.bases.base_storage import BaseGraphStorage
 from graphgen.bases.datatypes import Chunk
 from graphgen.models import LightRAGKGBuilder
 from graphgen.utils import logger, run_concurrent
+from graphgen.utils.loop import create_event_loop
+from tqdm.asyncio import tqdm as tqdm_async
+
+
+def _preview_text(text: str, max_len: int = 180) -> str:
+    sanitized = " ".join(text.split())
+    if len(sanitized) <= max_len:
+        return sanitized
+    return f"{sanitized[:max_len]}..."
 
 
 def build_text_kg(
@@ -35,7 +46,20 @@ def build_text_kg(
             chunk.id,
             len(chunk.content),
         )
-        nodes_data, edges_data = await kg_builder.extract(chunk)
+        try:
+            nodes_data, edges_data = await kg_builder.extract(chunk)
+        except ContentModerationError as e:
+            logger.error(
+                "KG extraction skipped chunk %s due to content moderation: %s",
+                chunk.id,
+                e,
+            )
+            logger.error(
+                "Moderated chunk preview for %s: %s",
+                chunk.id,
+                _preview_text(chunk.content),
+            )
+            raise
         completed_chunks += 1
         elapsed = time.monotonic() - started_at
         logger.info(
@@ -49,20 +73,49 @@ def build_text_kg(
         )
         return nodes_data, edges_data
 
-    results = run_concurrent(
-        extract_with_logging,
-        chunks,
-        desc="[2/4]Extracting entities and relationships from chunks",
-        unit="chunk",
-        raise_on_error=False,
-        error_context="KG extraction",
-    )
+    async def _run_all():
+        async def _worker(index: int, chunk: Chunk):
+            try:
+                res = await extract_with_logging(chunk)
+                return index, res, None
+            except Exception as e:  # pragma: no cover - backend/runtime dependent
+                return index, None, e
+
+        tasks = [asyncio.create_task(_worker(i, chunk)) for i, chunk in enumerate(chunks)]
+        results = [None] * len(chunks)
+        failed_chunk_reasons: dict[str, str] = {}
+        pbar = tqdm_async(
+            total=len(chunks),
+            desc="[2/4]Extracting entities and relationships from chunks",
+            unit="chunk",
+        )
+
+        for future in asyncio.as_completed(tasks):
+            index, result, error = await future
+            if error:
+                failed_chunk_reasons[chunks[index].id] = (
+                    "content_moderation"
+                    if isinstance(error, ContentModerationError)
+                    else "request_failure"
+                )
+                logger.exception("Task failed at index %s: %s", index, error)
+            else:
+                results[index] = result
+            pbar.update(1)
+
+        pbar.close()
+        return results, failed_chunk_reasons
+
+    loop = create_event_loop()
+    try:
+        results, failed_chunk_reasons = loop.run_until_complete(_run_all())
+    finally:
+        loop.close()
+
     successful_chunk_ids = [
         chunks[index].id for index, result in enumerate(results) if result is not None
     ]
-    failed_chunk_ids = [
-        chunks[index].id for index, result in enumerate(results) if result is None
-    ]
+    failed_chunk_ids = list(failed_chunk_reasons.keys())
 
     if failed_chunk_ids:
         logger.warning(
@@ -99,4 +152,4 @@ def build_text_kg(
     )
     logger.info("Relationship merge completed for %d edge groups", len(edges))
 
-    return nodes, edges, successful_chunk_ids, failed_chunk_ids
+    return nodes, edges, successful_chunk_ids, failed_chunk_ids, failed_chunk_reasons
