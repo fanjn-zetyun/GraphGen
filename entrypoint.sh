@@ -361,9 +361,10 @@ if wait "$GRAPHGEN_RUN_PID"; then
     detect_current_output_dir || true
     log "INFO" "GraphGen 执行成功"
 else
+    run_exit_code=$?
     GRAPHGEN_RUN_PID=""
-    log "ERROR" "GraphGen 执行失败，退出码: $?"
-    exit 1
+    log "ERROR" "GraphGen 执行失败，退出码: ${run_exit_code}"
+    exit "${run_exit_code}"
 fi
 
 log "INFO" "步骤 3/3: 移动输出文件到指定路径..."

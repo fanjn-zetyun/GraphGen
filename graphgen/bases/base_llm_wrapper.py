@@ -72,3 +72,7 @@ class BaseLLMWrapper(abc.ABC):
 
         filtered = filtered.strip()
         return filtered if filtered else text.strip()
+
+
+class ContentModerationError(RuntimeError):
+    """Raised when an LLM request is blocked by provider-side content moderation."""

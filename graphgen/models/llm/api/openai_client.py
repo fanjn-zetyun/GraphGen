@@ -2,7 +2,14 @@ import math
 from typing import Any, Dict, List, Optional
 
 import openai
-from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, AsyncAzureOpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncAzureOpenAI,
+    AsyncOpenAI,
+    BadRequestError,
+    RateLimitError,
+)
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -10,7 +17,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from graphgen.bases.base_llm_wrapper import BaseLLMWrapper
+from graphgen.bases.base_llm_wrapper import BaseLLMWrapper, ContentModerationError
 from graphgen.bases.datatypes import Token
 from graphgen.models.llm.limitter import RPM, TPM
 
@@ -113,6 +120,25 @@ class OpenAIClient(BaseLLMWrapper):
             kwargs["extra_body"] = extra_body
         return kwargs
 
+    @staticmethod
+    def _is_content_moderation_error(error: BadRequestError) -> bool:
+        message = str(error).lower()
+        if "content_filter" in message or "content filter" in message:
+            return True
+        if "responsible ai policy" in message or "safety" in message:
+            return True
+
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            error_body = body.get("error", body)
+            code = str(error_body.get("code", "")).lower()
+            inner_code = str(error_body.get("innererror", {}).get("code", "")).lower()
+            if code in {"content_filter", "content_policy_violation"}:
+                return True
+            if inner_code in {"responsibleaipolicyviolation", "content_filter"}:
+                return True
+        return False
+
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -142,13 +168,6 @@ class OpenAIClient(BaseLLMWrapper):
 
         return tokens
 
-    @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type(
-            (RateLimitError, APIConnectionError, APITimeoutError)
-        ),
-    )
     async def generate_answer(
         self,
         text: str,
@@ -166,9 +185,14 @@ class OpenAIClient(BaseLLMWrapper):
             await self.rpm.wait(silent=True)
             await self.tpm.wait(estimated_tokens, silent=True)
 
-        completion = await self.client.chat.completions.create(  # pylint: disable=E1125
-            model=self.model, **kwargs
-        )
+        try:
+            completion = await self.client.chat.completions.create(  # pylint: disable=E1125
+                model=self.model, **kwargs
+            )
+        except BadRequestError as e:
+            if self._is_content_moderation_error(e):
+                raise ContentModerationError(str(e)) from e
+            raise
         if hasattr(completion, "usage"):
             self.token_usage.append(
                 {
