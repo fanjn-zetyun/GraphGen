@@ -1,4 +1,6 @@
 import math
+import json
+import os
 from typing import Any, Dict, List, Optional
 
 import openai
@@ -119,9 +121,14 @@ class OpenAIClient(BaseLLMWrapper):
 
         kwargs["messages"] = messages
         if self.backend == "openai_api":
-            extra_body = kwargs.get("extra_body") or {}
-            extra_body["request_source"] = "ONLINE_WEB"
-            kwargs["extra_body"] = extra_body
+            try:
+                graphgen_params = json.loads(os.environ.get("GRAPHGEN_PARAMS", "{}"))
+            except json.JSONDecodeError:
+                graphgen_params = {}
+            if graphgen_params.get("model_source") == "infer":
+                extra_body = kwargs.get("extra_body") or {}
+                extra_body["request_source"] = "ONLINE_WEB"
+                kwargs["extra_body"] = extra_body
         return kwargs
 
     @retry(
@@ -178,12 +185,13 @@ class OpenAIClient(BaseLLMWrapper):
             if is_content_moderation_error(e):
                 raise ContentModerationError(str(e)) from e
             raise
-        if hasattr(completion, "usage"):
+        usage = getattr(completion, "usage", None)
+        if usage is not None:
             self.token_usage.append(
                 {
-                    "prompt_tokens": completion.usage.prompt_tokens,
-                    "completion_tokens": completion.usage.completion_tokens,
-                    "total_tokens": completion.usage.total_tokens,
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(usage, "total_tokens", 0) or 0,
                 }
             )
         return self.filter_think_tags(completion.choices[0].message.content)
