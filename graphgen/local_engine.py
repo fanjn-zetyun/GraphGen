@@ -221,6 +221,41 @@ class LocalEngine:
         self._append_output_chunk(output_file, ds)
         logger.info("Node %s output saved to %s", node.id, output_file)
 
+    @staticmethod
+    def _wrap_node_exception(node: Node, error: Exception) -> str:
+        op_name = node.op_name
+        if op_name == "read":
+            message = (
+                "数据读取失败：输入文件不符合 GraphGen 规范，任务终止。"
+                f" node_id={node.id}, reason={error}"
+            )
+        elif op_name == "chunk":
+            message = (
+                "文本切分失败：输入文档无法完成切分，任务终止。"
+                f" node_id={node.id}, reason={error}"
+            )
+        elif op_name == "build_kg":
+            message = (
+                "知识图谱构建失败，任务终止。"
+                f" node_id={node.id}, reason={error}"
+            )
+        elif op_name == "generate":
+            message = (
+                "数据集生成失败，任务终止。"
+                f" node_id={node.id}, reason={error}"
+            )
+        elif op_name == "partition":
+            message = (
+                "图分区失败，任务终止。"
+                f" node_id={node.id}, reason={error}"
+            )
+        else:
+            message = (
+                "任务执行失败，任务终止。"
+                f" node_id={node.id}, op_name={op_name}, reason={error}"
+            )
+        return message
+
     def _execute_node(
         self, node: Node, initial_df: pd.DataFrame, output_dir: Optional[str] = None
     ) -> Optional[str]:
@@ -273,7 +308,18 @@ class LocalEngine:
 
         for node in sorted_nodes:
             logger.info("Executing node %s of type %s", node.id, node.type)
-            output_file = self._execute_node(node, initial_df, output_dir=output_dir)
+            try:
+                output_file = self._execute_node(
+                    node, initial_df, output_dir=output_dir
+                )
+            except Exception as e:
+                logger.exception(
+                    "Node %s (%s) failed and will terminate the task: %s",
+                    node.id,
+                    node.op_name,
+                    e,
+                )
+                raise RuntimeError(self._wrap_node_exception(node, e)) from e
             if getattr(node, "save_output", False):
                 if output_file:
                     logger.info("Node %s output saved to %s", node.id, output_file)
