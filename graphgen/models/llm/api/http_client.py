@@ -11,7 +11,11 @@ from tenacity import (
     wait_exponential,
 )
 
-from graphgen.bases.base_llm_wrapper import BaseLLMWrapper, ContentModerationError
+from graphgen.bases.base_llm_wrapper import (
+    BaseLLMWrapper,
+    ContentModerationError,
+    is_content_moderation_payload,
+)
 from graphgen.bases.datatypes import Token
 from graphgen.models.llm.limitter import RPM, TPM
 
@@ -112,30 +116,6 @@ class HTTPClient(BaseLLMWrapper):
             body["response_format"] = {"type": "json_object"}
         return body
 
-    @staticmethod
-    def _is_content_moderation_payload(payload: dict | str) -> bool:
-        if isinstance(payload, str):
-            lowered = payload.lower()
-            return (
-                "content_filter" in lowered
-                or "content filter" in lowered
-                or "responsible ai policy" in lowered
-                or "safety" in lowered
-            )
-
-        error_body = payload.get("error", payload)
-        message = str(error_body.get("message", "")).lower()
-        code = str(error_body.get("code", "")).lower()
-        inner_code = str(error_body.get("innererror", {}).get("code", "")).lower()
-        return (
-            "content_filter" in message
-            or "content filter" in message
-            or "responsible ai policy" in message
-            or "safety" in message
-            or code in {"content_filter", "content_policy_violation"}
-            or inner_code in {"responsibleaipolicyviolation", "content_filter"}
-        )
-
     async def generate_answer(
         self,
         text: str,
@@ -164,9 +144,7 @@ class HTTPClient(BaseLLMWrapper):
                 except json.JSONDecodeError:
                     error_payload = raw_text
 
-                if resp.status == 400 and self._is_content_moderation_payload(
-                    error_payload
-                ):
+                if resp.status == 400 and is_content_moderation_payload(error_payload):
                     raise ContentModerationError(str(error_payload))
                 resp.raise_for_status()
 

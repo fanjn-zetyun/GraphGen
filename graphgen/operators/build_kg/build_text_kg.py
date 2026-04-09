@@ -4,7 +4,10 @@ import time
 from typing import List
 
 from graphgen.bases import BaseLLMWrapper
-from graphgen.bases.base_llm_wrapper import ContentModerationError
+from graphgen.bases.base_llm_wrapper import (
+    ContentModerationError,
+    is_content_moderation_error,
+)
 from graphgen.bases.base_storage import BaseGraphStorage
 from graphgen.bases.datatypes import Chunk
 from graphgen.models import LightRAGKGBuilder
@@ -48,7 +51,9 @@ def build_text_kg(
         )
         try:
             nodes_data, edges_data = await kg_builder.extract(chunk)
-        except ContentModerationError as e:
+        except Exception as e:
+            if not is_content_moderation_error(e):
+                raise
             logger.warning(
                 "KG extraction skipped chunk %s due to content moderation: %s",
                 chunk.id,
@@ -98,7 +103,7 @@ def build_text_kg(
                     if isinstance(error, ContentModerationError)
                     else "request_failure"
                 )
-                if isinstance(error, ContentModerationError):
+                if is_content_moderation_error(error):
                     logger.warning(
                         "KG extraction skipped chunk at index %s due to content moderation.",
                         index,

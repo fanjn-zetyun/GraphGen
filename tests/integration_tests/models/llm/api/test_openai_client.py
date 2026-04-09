@@ -3,7 +3,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from openai import BadRequestError
 
+from graphgen.bases.base_llm_wrapper import ContentModerationError
 from graphgen.models.llm.api.openai_client import OpenAIClient
 
 
@@ -68,3 +70,19 @@ def test_generate_topk_per_token_includes_request_source(openai_client: OpenAICl
     assert call.kwargs["extra_body"]["request_source"] == "ONLINE_WEB"
     assert call.kwargs["logprobs"] is True
     assert call.kwargs["top_logprobs"] == openai_client.topk_per_token
+
+
+def test_generate_answer_maps_vendor_moderation_code_1601_to_content_moderation(
+    openai_client: OpenAIClient,
+):
+    response = MagicMock()
+    response.request = MagicMock()
+    error = BadRequestError(
+        message="内容包含违规信息，未通过审核",
+        response=response,
+        body={"code": 1601, "message": "内容包含违规信息，未通过审核", "data": None},
+    )
+    openai_client.client.chat.completions.create = AsyncMock(side_effect=error)
+
+    with pytest.raises(ContentModerationError):
+        asyncio.run(openai_client.generate_answer("hello"))

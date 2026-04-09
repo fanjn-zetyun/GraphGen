@@ -2,7 +2,10 @@ import asyncio
 from typing import Iterable, Tuple
 
 from graphgen.bases import BaseKVStorage, BaseLLMWrapper, BaseOperator
-from graphgen.bases.base_llm_wrapper import ContentModerationError
+from graphgen.bases.base_llm_wrapper import (
+    ContentModerationError,
+    is_content_moderation_error,
+)
 from graphgen.common.init_llm import init_llm
 from graphgen.common.init_storage import init_storage
 from graphgen.utils import logger
@@ -146,10 +149,10 @@ class GenerateService(BaseOperator):
                         failed_indices.add(index)
                         failed_reason_by_index[index] = (
                             "content_moderation"
-                            if isinstance(error, ContentModerationError)
+                            if is_content_moderation_error(error)
                             else "request_failure"
                         )
-                        if isinstance(error, ContentModerationError):
+                        if is_content_moderation_error(error):
                             logger.warning(
                                 "Generation skipped batch %s for document ids %s due to content moderation: %s",
                                 index,

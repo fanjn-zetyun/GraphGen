@@ -1,8 +1,10 @@
 # pylint: disable=protected-access
+import asyncio
 import math
 
 import pytest
 
+from graphgen.bases.base_llm_wrapper import ContentModerationError
 from graphgen.models.llm.api.http_client import HTTPClient
 
 
@@ -13,19 +15,28 @@ class DummyTokenizer:
 
 
 class _MockResponse:
-    def __init__(self, data):
+    def __init__(self, data, status=200):
         self._data = data
+        self.status = status
 
     def raise_for_status(self):
-        return None
+        if self.status >= 400:
+            raise RuntimeError(f"http {self.status}")
 
     async def json(self):
         return self._data
 
+    async def text(self):
+        if isinstance(self._data, str):
+            return self._data
+        import json
+
+        return json.dumps(self._data, ensure_ascii=False)
+
 
 class _PostCtx:
-    def __init__(self, data):
-        self._resp = _MockResponse(data)
+    def __init__(self, data, status=200):
+        self._resp = _MockResponse(data, status=status)
 
     async def __aenter__(self):
         return self._resp
@@ -35,12 +46,13 @@ class _PostCtx:
 
 
 class MockSession:
-    def __init__(self, data):
+    def __init__(self, data, status=200):
         self._data = data
+        self._status = status
         self.closed = False
 
     def post(self, *args, **kwargs):
-        return _PostCtx(self._data)
+        return _PostCtx(self._data, status=self._status)
 
     async def close(self):
         self.closed = True
@@ -54,8 +66,7 @@ class DummyLimiter:
         self.calls.append((args, kwargs))
 
 
-@pytest.mark.asyncio
-async def test_generate_answer_records_usage_and_uses_limiters():
+def test_generate_answer_records_usage_and_uses_limiters():
     # arrange
     data = {
         "choices": [{"message": {"content": "Hello <think>world</think>!"}}],
@@ -78,7 +89,7 @@ async def test_generate_answer_records_usage_and_uses_limiters():
     client.request_limit = True
 
     # act
-    out = await client.generate_answer("hi", history=["u1", "a1"])
+    out = asyncio.run(client.generate_answer("hi", history=["u1", "a1"]))
 
     # assert
     assert out == "Hello world!"
@@ -91,8 +102,7 @@ async def test_generate_answer_records_usage_and_uses_limiters():
     assert len(tpm.calls) == 1
 
 
-@pytest.mark.asyncio
-async def test_generate_topk_per_token_parses_logprobs():
+def test_generate_topk_per_token_parses_logprobs():
     # arrange
     # create two token items with top_logprobs
     data = {
@@ -131,7 +141,7 @@ async def test_generate_topk_per_token_parses_logprobs():
     client.topk_per_token = 2
 
     # act
-    tokens = await client.generate_topk_per_token("hi", history=[])
+    tokens = asyncio.run(client.generate_topk_per_token("hi", history=[]))
 
     # assert
     assert len(tokens) == 2
@@ -141,3 +151,15 @@ async def test_generate_topk_per_token_parses_logprobs():
     assert len(tokens[0].top_candidates) == 2
     assert tokens[0].top_candidates[0].text == "A"
     assert tokens[0].top_candidates[1].text == "B"
+
+
+def test_generate_answer_maps_http_1601_payload_to_content_moderation():
+    client = HTTPClient(model="m", base_url="http://test")
+    client._session = MockSession(
+        {"code": 1601, "message": "内容包含违规信息，未通过审核", "data": None},
+        status=400,
+    )
+    client.tokenizer = DummyTokenizer()
+
+    with pytest.raises(ContentModerationError):
+        asyncio.run(client.generate_answer("hi", history=[]))
