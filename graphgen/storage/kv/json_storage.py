@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 
 from graphgen.bases.base_storage import BaseKVStorage, T
-from graphgen.utils import load_json, write_json
+from graphgen.utils import load_json, logger, write_json
 
 
 @dataclass
@@ -12,7 +12,7 @@ class JsonKVStorage(BaseKVStorage):
     def __post_init__(self):
         self._file_name = os.path.join(self.working_dir, f"{self.namespace}.json")
         self._data = load_json(self._file_name) or {}
-        print(f"Load KV {self.namespace} with {len(self._data)} data")
+        logger.info("Load KV %s with %d data", self.namespace, len(self._data))
 
     @property
     def data(self):
@@ -66,4 +66,4 @@ class JsonKVStorage(BaseKVStorage):
 
     def reload(self):
         self._data = load_json(self._file_name) or {}
-        print(f"Reload KV {self.namespace} with {len(self._data)} data")
+        logger.info("Reload KV %s with %d data", self.namespace, len(self._data))

@@ -7,6 +7,7 @@ APP_DIR="/app"
 # 显式切换并补齐 PYTHONPATH，避免 `python -m graphgen.run` 找不到包。
 cd "${APP_DIR}"
 export PYTHONPATH="${APP_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONUNBUFFERED=1
 
 
 # 日志配置
