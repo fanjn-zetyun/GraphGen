@@ -4,7 +4,10 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from graphgen.bases import BaseLLMWrapper
-from graphgen.bases.base_llm_wrapper import ContentModerationError
+from graphgen.bases.base_llm_wrapper import (
+    ContentModerationError,
+    is_content_moderation_error,
+)
 from graphgen.common.runtime import use_local_runtime
 from graphgen.models import Tokenizer
 
@@ -58,12 +61,16 @@ async def _generate_answer_with_retry(
     **extra: Any,
 ) -> str:
     last_error: Exception | None = None
+    attempts_used = 0
     for attempt in range(1, LLM_GENERATE_MAX_ATTEMPTS + 1):
+        attempts_used = attempt
         try:
             return await llm_instance.generate_answer(text, history, **extra)
         except ContentModerationError as e:
             raise e
         except Exception as e:  # pragma: no cover - depends on backend/runtime
+            if is_content_moderation_error(e):
+                raise ContentModerationError(str(e)) from e
             last_error = e
             if not _is_retryable_generate_error(e) or attempt >= LLM_GENERATE_MAX_ATTEMPTS:
                 break
@@ -79,7 +86,7 @@ async def _generate_answer_with_retry(
 
     assert last_error is not None
     raise LLMRequestExhaustedError(
-        f"LLM request failed after {LLM_GENERATE_MAX_ATTEMPTS} attempts: "
+        f"LLM request failed after {attempts_used} attempts: "
         f"{type(last_error).__name__}: {last_error}"
     ) from last_error
 

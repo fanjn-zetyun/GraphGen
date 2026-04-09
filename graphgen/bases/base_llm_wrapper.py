@@ -76,3 +76,75 @@ class BaseLLMWrapper(abc.ABC):
 
 class ContentModerationError(RuntimeError):
     """Raised when an LLM request is blocked by provider-side content moderation."""
+
+
+_CONTENT_MODERATION_CODES = {
+    "1601",
+    "content_filter",
+    "content_policy_violation",
+}
+
+_CONTENT_MODERATION_KEYWORDS = (
+    "content_filter",
+    "content filter",
+    "responsible ai policy",
+    "safety",
+    "内容包含违规信息",
+    "未通过审核",
+    "违规信息",
+    "内容审核",
+    "安全策略",
+)
+
+
+def is_content_moderation_payload(payload: Any) -> bool:
+    if isinstance(payload, str):
+        lowered = payload.lower()
+        return any(keyword in lowered for keyword in _CONTENT_MODERATION_KEYWORDS)
+
+    if not isinstance(payload, dict):
+        return False
+
+    error_body = payload.get("error", payload)
+    message = str(error_body.get("message", "")).lower()
+    code = str(error_body.get("code", "")).lower()
+    inner_error = error_body.get("innererror", {})
+    inner_code = ""
+    if isinstance(inner_error, dict):
+        inner_code = str(inner_error.get("code", "")).lower()
+
+    return (
+        any(keyword in message for keyword in _CONTENT_MODERATION_KEYWORDS)
+        or code in _CONTENT_MODERATION_CODES
+        or inner_code in {"responsibleaipolicyviolation", "content_filter"}
+    )
+
+
+def is_content_moderation_error(error: BaseException | None) -> bool:
+    seen: set[int] = set()
+    current = error
+
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ContentModerationError):
+            return True
+
+        if is_content_moderation_payload(str(current)):
+            return True
+
+        body = getattr(current, "body", None)
+        if is_content_moderation_payload(body):
+            return True
+
+        response = getattr(current, "response", None)
+        response_payload = getattr(response, "json", None)
+        if callable(response_payload):
+            try:
+                if is_content_moderation_payload(response_payload()):
+                    return True
+            except Exception:
+                pass
+
+        current = current.__cause__ or current.__context__
+
+    return False

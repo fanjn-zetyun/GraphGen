@@ -17,7 +17,11 @@ from tenacity import (
     wait_exponential,
 )
 
-from graphgen.bases.base_llm_wrapper import BaseLLMWrapper, ContentModerationError
+from graphgen.bases.base_llm_wrapper import (
+    BaseLLMWrapper,
+    ContentModerationError,
+    is_content_moderation_error,
+)
 from graphgen.bases.datatypes import Token
 from graphgen.models.llm.limitter import RPM, TPM
 
@@ -120,25 +124,6 @@ class OpenAIClient(BaseLLMWrapper):
             kwargs["extra_body"] = extra_body
         return kwargs
 
-    @staticmethod
-    def _is_content_moderation_error(error: BadRequestError) -> bool:
-        message = str(error).lower()
-        if "content_filter" in message or "content filter" in message:
-            return True
-        if "responsible ai policy" in message or "safety" in message:
-            return True
-
-        body = getattr(error, "body", None)
-        if isinstance(body, dict):
-            error_body = body.get("error", body)
-            code = str(error_body.get("code", "")).lower()
-            inner_code = str(error_body.get("innererror", {}).get("code", "")).lower()
-            if code in {"content_filter", "content_policy_violation"}:
-                return True
-            if inner_code in {"responsibleaipolicyviolation", "content_filter"}:
-                return True
-        return False
-
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -190,7 +175,7 @@ class OpenAIClient(BaseLLMWrapper):
                 model=self.model, **kwargs
             )
         except BadRequestError as e:
-            if self._is_content_moderation_error(e):
+            if is_content_moderation_error(e):
                 raise ContentModerationError(str(e)) from e
             raise
         if hasattr(completion, "usage"):
