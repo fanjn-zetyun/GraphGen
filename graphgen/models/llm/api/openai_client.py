@@ -125,7 +125,17 @@ class OpenAIClient(BaseLLMWrapper):
                 graphgen_params = json.loads(os.environ.get("GRAPHGEN_PARAMS", "{}"))
             except json.JSONDecodeError:
                 graphgen_params = {}
-            if graphgen_params.get("model_source") == "infer":
+            model_source = graphgen_params.get("model_source")
+            base_url = graphgen_params.get("base_url") or graphgen_params.get(
+                "synthesizer_url"
+            )
+            if model_source == "infer" or (
+                model_source == "other"
+                and base_url in (
+                    "https://cloud.baicaiinfer.com/v1",
+                    "https://cloud.test.baicaiinfer.com/v1",
+                )
+            ):
                 extra_body = kwargs.get("extra_body") or {}
                 extra_body["request_source"] = "ONLINE_WEB"
                 kwargs["extra_body"] = extra_body
