@@ -91,7 +91,7 @@ def local_read(
     source_path = str(Path(paths[0]).expanduser().resolve())
     suffix = Path(source_path).suffix.lower()
 
-    if suffix in {".txt"}:
+    if suffix in {".txt", ".md"}:
         records = [
             {
                 "type": "text",
@@ -129,7 +129,7 @@ def local_read(
     else:
         raise ValueError(
             f"Unsupported input suffix for local runtime: {suffix}. "
-            "Supported: .txt, .pdf, .json, .jsonl, .csv"
+            "Supported: .txt, .md, .pdf, .json, .jsonl, .csv"
             # "Supported: .txt, .md, .pdf, .json, .jsonl, .csv"
         )
 
