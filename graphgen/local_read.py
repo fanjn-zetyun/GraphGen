@@ -129,7 +129,8 @@ def local_read(
     else:
         raise ValueError(
             f"Unsupported input suffix for local runtime: {suffix}. "
-            "Supported: .txt, .md, .pdf, .json, .jsonl, .csv"
+            "Supported: .txt, .pdf, .json, .jsonl, .csv"
+            # "Supported: .txt, .md, .pdf, .json, .jsonl, .csv"
         )
 
     for item in records:
