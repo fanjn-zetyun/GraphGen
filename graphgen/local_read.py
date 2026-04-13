@@ -91,7 +91,7 @@ def local_read(
     source_path = str(Path(paths[0]).expanduser().resolve())
     suffix = Path(source_path).suffix.lower()
 
-    if suffix in {".txt", ".md"}:
+    if suffix in {".txt"}:
         records = [
             {
                 "type": "text",
